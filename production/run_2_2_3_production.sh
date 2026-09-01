@@ -33,7 +33,7 @@ cleanup() {
     kill "$GW_PID" 2>/dev/null || true
     wait "$GW_PID" 2>/dev/null || true
   fi
-  bash "$PROD_DIR/edge/edge_forward.sh" --stop >/dev/null 2>&1 || true
+  bash "$PROD_DIR/edge/init_link_connect.sh" --reset >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -59,10 +59,11 @@ for p in "$EDGE_JSON_PORT" "$EDGE_MEDIA_PORT" "$EDGE_BAOTONG_PORT"; do
 done
 echo "接入端口 $EDGE_JSON_PORT/$EDGE_MEDIA_PORT 空闲；中转目标 $RELAY_HOST:11500；设备 ID $DEVICE_ID"
 
-section '1  启动边缘网关（生产参数，默认不转发）'
+section '1  启动边缘网关（生产参数，默认不受理、不转发）'
 mkdir -p "$STATE_DIR"
-# 复位转发门：异常退出残留的标记会导致网关一启动就向生产中转转发。
-bash "$PROD_DIR/edge/edge_forward.sh" --stop >/dev/null 2>&1 || true
+# 会话复位：清掉残留标记（接入门/转发门/过滤门），异常退出残留的
+# 转发标记会导致网关一启动就向生产中转转发。
+bash "$PROD_DIR/edge/init_link_connect.sh" --reset >/dev/null 2>&1 || true
 EDGE_STATE_DIR="$PROD_DIR/edge/.state" \
 EDGE_JSON_PORT="$EDGE_JSON_PORT" EDGE_MEDIA_PORT="$EDGE_MEDIA_PORT" \
 EDGE_BAOTONG_PORT="$EDGE_BAOTONG_PORT" EDGE_BAOTONG_HOST=127.0.0.1 \
@@ -86,33 +87,36 @@ export EDGE_HOST=127.0.0.1
 export EDGE_JSON_PORT EDGE_MEDIA_PORT
 SEND="python3 $PROD_DIR/device/send_business.py --host 127.0.0.1 --port $EDGE_JSON_PORT --device-id $DEVICE_ID"
 
-section '2  接入链路连通性检查'
+section '2  初始化接入链路（init_link_connect，开始受理端侧数据）'
+bash "$PROD_DIR/edge/init_link_connect.sh"
+
+section '3  接入链路连通性检查'
 bash "$PROD_DIR/device/check_link.sh"
 
-section '3  接入链路时延实测'
+section '4  接入链路时延实测'
 bash "$PROD_DIR/device/ping_link.sh"
 
-section '4  业务数据发送（start_test）'
+section '5  业务数据发送（start_test）'
 $SEND --count "$START_COUNT"
 
-section '5  边缘网关服务日志'
+section '6  边缘网关服务日志'
 tail -n 30 "$STATE_DIR/gateway.log"
 
-section '6  持续传输（keep_transfer，仅有线）'
+section '7  持续传输（keep_transfer，仅有线）'
 $SEND --link wired --duration "$KEEP_DURATION" --interval 1
 
-section '7  多模态并发传输（Wi-Fi/蓝牙/有线）'
+section '8  多模态并发传输（Wi-Fi/蓝牙/有线）'
 $SEND --link all --duration "$BANDWIDTH_DURATION" --interval 1
 
-section '8  建立边缘网关->云端转发通道（真实流量将发往生产中转）'
+section '9  建立边缘网关->云端转发通道（真实流量将发往生产中转）'
 bash "$PROD_DIR/edge/edge_forward.sh" --start
 sleep 2
 tail -n 5 "$STATE_DIR/gateway.log"
 
-section '9  转发通道建立后业务数据端到端发送'
+section '10  转发通道建立后业务数据端到端发送'
 $SEND --count "$START_COUNT"
 
-section '10  端到端链路数据查询（生产只读验证）'
+section '11  端到端链路数据查询（生产只读验证）'
 bash "$PROD_DIR/cloud/query_relay_state.sh"
 echo
 echo '端侧发送审计（对账用，最近3条）：'

@@ -161,9 +161,11 @@ HTTP 时带 `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169`。
 
 ```bash
 ./init_link_connect.sh --reset   # 会话复位：清台账并关三扇门
-./policy-route.sh --start
-./msg-encap.sh --start
 ```
+
+策略路由与报文封装**不做前置**（大纲里属 2.2.5 条目3/4）：转发在
+edge_forwarder 之后常开，未启动策略路由期间业务走默认 5G 上行——
+真网关本就没有策略路由门（受理即转发），本地模型行为与之一致。
 
 | 步骤 | 终端 | 命令 | 预期 |
 |------|------|------|------|
@@ -184,8 +186,6 @@ HTTP 时带 `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169`。
 ```bash
 cd final
 ./init_link_connect.sh --reset    # 前置：会话复位（关三扇门）
-./policy-route.sh --start         # 前置：策略路由
-./msg-encap.sh --start            # 前置：报文封装
 ./init_link_connect.sh            # 步骤1：初始化接入链路（开始受理端侧数据）
 ./check_link_connect.sh           # 步骤2：检查链路连接
 ./ping_link_test.sh               # 步骤3：链路 ping 测试
@@ -277,6 +277,7 @@ Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）由
 ./cloud-mgr.sh --start
 ./start_uplink_transfer.sh
 ./query_link_data.sh
+./policy-route.sh --start   # 大纲 2.2.5 条目3：策略路由启动
 ./link_block.sh --stop
 ./link-monitor.sh
 ./start_uplink_transfer.sh

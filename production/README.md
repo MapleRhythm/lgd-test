@@ -22,7 +22,7 @@
 
 | 目录 | 部署到 | 内容 |
 |---|---|---|
-| `edge/` | 边缘网关真机 | `gateway_merged.py`（解包后的现网源码）、`run_gateway.sh`、`edge_forward.sh` |
+| `edge/` | 边缘网关真机 | `gateway_merged.py`（解包后的现网源码）、`run_gateway.sh`、`init_link_connect.sh`、`edge_forward.sh` |
 | `device/` | 端侧设备真机 | `send_business.py`（真机协议发送器）、`check_link.sh`、`ping_link.sh`、`run_2_2_3.sh` |
 | `cloud/` | 任意位置 | `query_relay_state.sh`（生产只读验证） |
 | 根目录 | 联调机 | `run_2_2_3_production.sh`（单机联调，端口与演示环境错开） |
@@ -42,11 +42,20 @@ cd edge
 EDGE_DISABLE_SATELLITE=1 EDGE_BAOTONG_HOST=127.0.0.1 EDGE_BAOTONG_PORT=19118 ./run_gateway.sh
 ```
 
-**转发门（大纲步骤 6 语义，真机同样适用）**：网关启动后默认不向云端转发，
-在边缘网关上执行 `./edge_forward.sh --start` 建立 5G/短波/卫星转发通道，
-`--stop` 断开，`--status` 查询。标记文件在 `edge/.state/edge_forward.enabled`。
+**接入门（大纲步骤 1 语义，与开发侧一致）**：网关启动后默认**不受理**端侧
+业务数据——JSON 报文只计接收统计（`gate_drop`）、媒体帧记 `[MEDIA][RECV][GATE]`。
+在边缘网关上执行 `./init_link_connect.sh` 打开多源接入门后开始受理；
+`--reset` 关闭接入/转发/过滤三扇门（会话复位），`--status` 查询。
+标记文件在 `edge/.state/multi_source_access.enabled`。名单过滤门默认关闭
+（全部放行），2.2.4 的 trust_access_add_whitelist 才启用，本流程包不涉及。
+
+**转发门（大纲步骤 6 语义，真机同样适用）**：接入门打开后网关仍默认不向
+云端转发，在边缘网关上执行 `./edge_forward.sh --start` 建立 5G/短波/卫星
+转发通道，`--stop` 断开，`--status` 查询。标记文件在
+`edge/.state/edge_forward.enabled`。
 注意：转发关闭期间业务报文在网关发送队列中排队（上限 1000 条，超出丢弃），
-长时间大流量前先开转发。
+长时间大流量前先开转发。策略路由/报文封装不参与 2.2.3：转发一经建立即
+持续上云（默认 5G 上行），策略路由属大纲 2.2.5 条目3，真网关无此门。
 
 ## 端侧设备（真机）
 

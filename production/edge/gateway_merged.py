@@ -1354,6 +1354,40 @@ def edge_forward_enabled():
     return os.path.exists(edge_forward_marker_path())
 
 
+# ---------------------------------------------------------------------------
+# 多源接入门（大纲 2.2.4）：./multi_source_access.sh 执行前，网关只统计
+# 到达报文（接收计数/链路监测照常），不受理端侧业务数据——不校验白名单、
+# 不分类、不入转发队列；标记文件落下后开始受理。
+# ---------------------------------------------------------------------------
+def multi_source_marker_path():
+    state_dir = os.environ.get("PROTOCOL_TEST_STATE_DIR", ".protocol-test")
+    return os.path.join(state_dir, "multi_source_access.enabled")
+
+
+def multi_source_enabled():
+    return os.path.exists(multi_source_marker_path())
+
+
+# ---------------------------------------------------------------------------
+# 可信接入过滤开关（大纲 2.2.4）：边缘启动时不过滤名单（全部放行）；
+# ./trust_access_add_whitelist.sh 从服务器拉取白名单并落下标记后，
+# 名单过滤生效，不在名单内的设备被拒收并计入 whitelist_drop。
+# ---------------------------------------------------------------------------
+def whitelist_filter_marker_path():
+    state_dir = os.environ.get("PROTOCOL_TEST_STATE_DIR", ".protocol-test")
+    return os.path.join(state_dir, "whitelist_filter.enabled")
+
+
+def whitelist_filter_enabled():
+    return os.path.exists(whitelist_filter_marker_path())
+
+
+# [TRUST-ACCESS] 过滤状态切换公告：多条端侧长连接各自发现切换时全局
+# 去重——同一状态全网关只报一次（state 为最近一次已公告的过滤状态）。
+_TRUST_ACCESS_ANNOUNCED = {"state": None}
+_TRUST_ACCESS_LOCK = threading.Lock()
+
+
 class JsonCloudSender:
     """将 8888 收到的 JSON 发送至统一云端 11500。"""
 
@@ -1517,6 +1551,9 @@ def handle_json_client(
     shortwave_total = 0
     beacon_drop_total = 0
     whitelist_drop_total = 0
+    access_gate_drop_total = 0
+    last_gate_open = None
+    last_filter_on = None
     last_received_total = 0
     last_report = time.time()
 
@@ -1527,6 +1564,9 @@ def handle_json_client(
         nonlocal shortwave_total
         nonlocal beacon_drop_total
         nonlocal whitelist_drop_total
+        nonlocal access_gate_drop_total
+        nonlocal last_gate_open
+        nonlocal last_filter_on
 
         received_total += 1
         payload_text = json.dumps(
@@ -1560,8 +1600,37 @@ def handle_json_client(
             )
             return
 
-        # 启用白名单过滤时，未获准的设备不转发，也不进入宝通短波链路。
-        if whitelist_filter and whitelist is not None:
+        # 多源接入门（大纲 2.2.4）：multi_source_access 未执行前不受理端侧
+        # 业务数据——接收统计照常累计，报文在白名单校验之前就被拦下。
+        gate_open = multi_source_enabled()
+        if gate_open != last_gate_open:
+            if gate_open:
+                log(
+                    "[MULTI-SOURCE] 多源业务接入已启动，开始受理端侧设备数据"
+                )
+            else:
+                log(
+                    "[MULTI-SOURCE] 多源接入未启动，暂不受理端侧数据"
+                    "（等待 ./multi_source_access.sh）"
+                )
+            last_gate_open = gate_open
+        if not gate_open:
+            access_gate_drop_total += 1
+            return
+
+        # 可信接入过滤（大纲 2.2.4）：trust_access_add_whitelist 执行前不过滤
+        # 名单（全部放行）；标记落下后才按服务器名单拒收名单外设备。
+        filter_on = whitelist_filter and whitelist is not None and whitelist_filter_enabled()
+        if filter_on != last_filter_on:
+            with _TRUST_ACCESS_LOCK:
+                if _TRUST_ACCESS_ANNOUNCED["state"] != filter_on:
+                    _TRUST_ACCESS_ANNOUNCED["state"] = filter_on
+                    if filter_on:
+                        log("[TRUST-ACCESS] 白名单过滤已生效，名单外设备将被拒收")
+                    elif whitelist_filter and whitelist is not None:
+                        log("[TRUST-ACCESS] 白名单过滤未启用，暂不按名单过滤（全部放行）")
+            last_filter_on = filter_on
+        if filter_on:
             if not whitelist_allow(payload, whitelist, gateway_id):
                 whitelist_drop_total += 1
                 return
@@ -1683,7 +1752,7 @@ def handle_json_client(
                     log(
                         "[JSON][RECV] {} total={} | bytes={} | {:.1f} msg/s | queued={} "
                         "| shortwave={} | beacon_drop={} | whitelist_drop={} | "
-                        "queue={}/{} | bad={} | dropped_bytes={}".format(
+                        "gate_drop={} | queue={}/{} | bad={} | dropped_bytes={}".format(
                             client,
                             received_total,
                             received_bytes,
@@ -1692,6 +1761,7 @@ def handle_json_client(
                             shortwave_total,
                             beacon_drop_total,
                             whitelist_drop_total,
+                            access_gate_drop_total,
                             send_queue.qsize(),
                             send_queue.maxsize,
                             extractor.bad_objects,
@@ -1728,7 +1798,7 @@ def handle_json_client(
             )
         log(
             "[JSON][RECV] client closed {} | received={} | bytes={} | queued={} | shortwave={} "
-            "| beacon_drop={} | whitelist_drop={} | bad={} | dropped_bytes={}".format(
+            "| beacon_drop={} | whitelist_drop={} | gate_drop={} | bad={} | dropped_bytes={}".format(
                 client,
                 received_total,
                 received_bytes,
@@ -1736,6 +1806,7 @@ def handle_json_client(
                 shortwave_total,
                 beacon_drop_total,
                 whitelist_drop_total,
+                access_gate_drop_total,
                 extractor.bad_objects,
                 extractor.dropped_bytes,
             )
@@ -3310,6 +3381,8 @@ def handle_media_client(conn, addr, packet_queue, log_every, slice_metrics=None)
 
     recv_video = 0
     recv_snapshot = 0
+    media_gate_drop_total = 0
+    last_gate_open = None
 
     try:
         conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -3327,6 +3400,27 @@ def handle_media_client(conn, addr, packet_queue, log_every, slice_metrics=None)
             packet["queued_at"] = time.monotonic()
             if slice_metrics is not None:
                 slice_metrics.record_input("embb", raw_len)
+
+            # 多源接入门（大纲 2.2.4）：multi_source_access 未执行前不受理
+            # 端侧媒体数据（与 8888 JSON 口一致）；接收统计照常累计。
+            gate_open = multi_source_enabled()
+            if gate_open != last_gate_open:
+                if gate_open:
+                    log("[MULTI-SOURCE] 多源业务接入已启动，开始受理端侧媒体数据")
+                else:
+                    log(
+                        "[MULTI-SOURCE] 多源接入未启动，暂不受理端侧媒体数据"
+                        "（等待 ./multi_source_access.sh）"
+                    )
+                last_gate_open = gate_open
+            if not gate_open:
+                media_gate_drop_total += 1
+                if media_gate_drop_total == 1 or media_gate_drop_total % log_every == 0:
+                    log(
+                        "[MEDIA][RECV][GATE] 多源接入未启动，媒体报文暂不受理"
+                        " | gated={} | source={}".format(media_gate_drop_total, client)
+                    )
+                continue
 
             if packet_type == "VID0":
                 recv_video += 1
@@ -4238,6 +4332,20 @@ def main():
             "enabled" if edge_forward_enabled()
             else "disabled until ./edge_forward.sh --start",
             edge_forward_marker_path(),
+        )
+    )
+    log(
+        "[MAIN] multi-source access: {} | marker={}".format(
+            "enabled" if multi_source_enabled()
+            else "gated until ./multi_source_access.sh",
+            multi_source_marker_path(),
+        )
+    )
+    log(
+        "[MAIN] whitelist filter: {} | marker={}".format(
+            "enabled" if whitelist_filter_enabled()
+            else "off until ./trust_access_add_whitelist.sh",
+            whitelist_filter_marker_path(),
         )
     )
     log("[MAIN] gateway id: {}".format(args.gateway))

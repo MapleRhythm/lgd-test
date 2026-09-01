@@ -2,7 +2,7 @@
 # 大纲 2.2.3 生产环境流程（在端侧设备真机执行）。
 #
 # 前提：
-#   - 边缘网关真机已运行 ../edge/run_gateway.sh（默认不转发）
+#   - 边缘网关真机已运行 ../edge/run_gateway.sh（默认不受理、不转发）
 #   - EDGE_HOST 指向边缘网关地址（默认 127.0.0.1，设备与网关同机时）
 #   - 可选 EDGE_SSH=<user@edge-host>：<edge-dir> —— 步骤 5/6 自动经 ssh 在
 #     边缘网关上执行；未设置时打印人工执行指令
@@ -33,6 +33,9 @@ on_edge() {  # 在边缘网关执行（有 EDGE_SSH 则远程，否则打印指�
     echo "  [边缘网关执行] $cmd"
   fi
 }
+
+section '2.2.3  初始化接入链路（init_link_connect，在边缘网关执行）'
+on_edge "./init_link_connect.sh"
 
 section '2.2.3  接入链路连通性检查（check_link_connect）'
 ./check_link.sh

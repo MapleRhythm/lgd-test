@@ -5,6 +5,8 @@ be updated without searching through the business logic.  Command-line options
 may still override the matching DEFAULT_* values at startup.
 """
 
+import os
+
 # Local ingress services.
 DEFAULT_MEDIA_LISTEN_HOST = "0.0.0.0"
 DEFAULT_MEDIA_LISTEN_PORT = 7777
@@ -62,7 +64,9 @@ DEFAULT_MEDIA_MAX_QUEUE_PACKETS = 120
 BUFFER_SIZE = 65536
 MAX_PACKET_SIZE = 20 * 1024 * 1024
 RECONNECT_INTERVAL = 3.0
-REPORT_INTERVAL = 5.0
+# 周期统计行（[JSON][RECV]/[JSON][SEND]）打印间隔，可用
+# EDGE_REPORT_INTERVAL 覆盖；边缘演示终端默认放慢到 30s 降噪。
+REPORT_INTERVAL = float(os.environ.get("EDGE_REPORT_INTERVAL", "5.0"))
 TIME_SET_INTERVAL = 2.0
 
 # Whitelist synchronization.

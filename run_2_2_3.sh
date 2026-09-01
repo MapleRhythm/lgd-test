@@ -17,14 +17,14 @@ section() {
 }
 
 section '2.2.3 PRECONDITIONS'
+# 只做会话复位。转发门在步骤6 edge_forward 打开后业务即持续上云（默认
+# 5G 上行），不依赖策略路由——策略路由/报文封装按大纲属 2.2.5 条目3/4。
 ./init_link_connect.sh --reset
-./policy-route.sh --start
-./msg-encap.sh --start
 
 section '2.2.3 TEST STEPS'
 ./init_link_connect.sh
 ./check_link_connect.sh
-./ping_link_test.sh
+./ping_link_test.sh || true    # 测量步骤：回传链路此时尚未建立（步骤6才开转发），异常链路属预期
 ./start_test.sh --device-id "${PROTOCOL_TEST_DEVICE_ENV:-990E261B}" --biz-type env
 ./query_service_log.sh
 ./keep_transfer.sh --device-id "${PROTOCOL_TEST_DEVICE_ENV:-990E261B}" --biz-type env --duration "$KEEP_DURATION"

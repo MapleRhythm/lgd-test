@@ -5,6 +5,10 @@
 
 > 纯演练到步骤 7 为止**没有任何字节发往中转**（转发门未开，报文在网关队列排队，
 > 上限 1000 条）。步骤 8 开门之后，真实业务流才发往生产中转 47.99.47.169。
+> 另有两扇门与开发侧语义一致：**接入门**（网关启动后默认不受理端侧数据，
+> 步骤 1 `init_link_connect.sh` 打开后才受理，此前报文只计接收统计 gate_drop）
+> 与**名单过滤门**（默认不过滤、全部放行；2.2.4 的 trust_access_add_whitelist
+> 才会启用，本流程包不涉及）。
 
 ## 准备
 
@@ -40,6 +44,16 @@ cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/device
 export EDGE_HOST=127.0.0.1 EDGE_JSON_PORT=18888 EDGE_MEDIA_PORT=17777
 ```
 
+### 步骤 1 初始化接入链路（init_link_connect，在边缘网关执行）
+
+```bash
+../edge/init_link_connect.sh          # 打开多源接入门：边缘开始受理端侧数据
+../edge/init_link_connect.sh --status # 可选：确认门状态
+```
+
+单机演练在终端 B 执行即可；真机三节点部署时换到终端 A（边缘网关）执行——
+标记文件落在边缘机本地，门命令必须在边缘机上跑才作用到网关。
+
 ### 步骤 2 接入链路连通性检查（check_link_connect）
 
 ```bash
@@ -63,7 +77,8 @@ python3 send_business.py --count 5
 ```
 
 预期：5 行 `[SEND] link=wired msg_id=...`，末尾 `[SUMMARY] 发送 5 条，失败 0 次`；
-终端 A 出现接收/白名单放行日志与 `[EDGE-FORWARD] 数据转发通道未建立`（排队不外发）。
+终端 A 出现接收/白名单拉取日志与 `[EDGE-FORWARD] 数据转发通道未建立`（排队不外发；
+起步名单过滤未启用，全部放行）。若步骤 1 未执行，报文只计入 gate_drop 接收统计。
 
 ### 步骤 5 边缘网关服务日志查询（query_service_log）
 
@@ -129,5 +144,5 @@ tail -n 3 .state/sent.jsonl      # 端侧发送审计，与中转 STAT 计数对
 | 手册步骤 | `run_2_2_3_production.sh` 对应段 |
 |---|---|
 | 准备 + 终端 A | 0 环境自检 / 1 启动边缘网关 |
-| 步骤 2–10 | 2–10 各节（步骤名相同） |
+| 步骤 1–10 | 2–11 各节（步骤名相同） |
 | 收尾 | EXIT trap 自动执行 |
