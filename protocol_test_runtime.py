@@ -243,6 +243,9 @@ def default_state() -> dict:
             "critical": {"label": "critical-low-latency", "weight": 5, "rate_mbps": 2.0},
         },
         "rate_limit_mbps": None,
+        # 真网关离线轮换游标（gateway_merged.py 离线分支）：5G 断开时
+        # gateway_1 的短波应答在 fire 与 windspeed 间按次轮换。
+        "shortwave_rotate": {"next": "fire"},
     }
 
 
@@ -467,6 +470,9 @@ def degraded_mode(state: dict) -> bool:
 
 
 def proposed_routes(state: dict, biz_type: str):
+    # 大纲 2.2.5 条目3：正常时视频/传感器经 5G，告警/控制同步经短波与
+    # 卫星，关键传感器经卫星；5G 低于阈值后短波改为传输关键传感器数据
+    # 与告警/控制，卫星传输内容不变，关键业务不中断。
     biz_type = normalize_biz_type(biz_type)
     if degraded_mode(state):
         return {
@@ -475,10 +481,10 @@ def proposed_routes(state: dict, biz_type: str):
             "sensor": [],
             "env": [],
             "critical-sensor": ["shortwave", "satellite"],
-            "fire": ["shortwave"],
-            "control": ["shortwave"],
-            "alarm": ["shortwave"],
-            "control-alarm": ["shortwave"],
+            "fire": ["shortwave", "satellite"],
+            "control": ["shortwave", "satellite"],
+            "alarm": ["shortwave", "satellite"],
+            "control-alarm": ["shortwave", "satellite"],
         }.get(biz_type, ["shortwave"])
     return {
         "video": ["5g"],
@@ -486,10 +492,10 @@ def proposed_routes(state: dict, biz_type: str):
         "sensor": ["5g"],
         "env": ["5g"],
         "critical-sensor": ["satellite"],
-        "fire": ["5g", "shortwave"],
-        "control": ["5g", "shortwave"],
-        "alarm": ["5g", "shortwave"],
-        "control-alarm": ["5g", "shortwave"],
+        "fire": ["5g", "shortwave", "satellite"],
+        "control": ["5g", "shortwave", "satellite"],
+        "alarm": ["5g", "shortwave", "satellite"],
+        "control-alarm": ["5g", "shortwave", "satellite"],
     }.get(biz_type, ["5g"])
 
 
@@ -870,6 +876,20 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
         "available": [link for link in UPLINK if link_is_up(state, link)],
         "proposed": proposed, "selected": actual, "reason": reason,
     }
+    # 真网关短波行为（gateway_merged.py 应答选择）：正常时 gateway_1 的
+    # 短波只应答 fire；5G 断开（11417 connected=false）后按次轮换
+    # fire/windspeed，一条短信只装一种业务。轮换明细只进 jsonl，
+    # 控制台表格不加列。
+    shortwave_answer = None
+    shortwave_next = None
+    if biz_type == "fire" and "shortwave" in actual and degraded_mode(state):
+        rotate = state.get("shortwave_rotate") or {"next": "fire"}
+        shortwave_answer = rotate.get("next") or "fire"
+        shortwave_next = "windspeed" if shortwave_answer == "fire" else "fire"
+        mutate_state(lambda current, upcoming=shortwave_next:
+                     current.__setitem__("shortwave_rotate", {"next": upcoming}))
+        route_record["shortwave_answer"] = shortwave_answer
+        route_record["shortwave_next"] = shortwave_next
     append_record("route.jsonl", route_record)
     append_record("edge.jsonl", {**route_record, "stage": "route_decision"})
 
@@ -914,7 +934,11 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
             "classification": "control-alarm" if biz_type in {"fire", "control", "alarm", "control-alarm"} else biz_type,
             "forward_status": "accepted" if state.get("cloud_manager_enabled") else "queued",
         })
-    return {"accepted": True, "forwarded": forwarded, "selected": actual, "reason": reason}
+    result = {"accepted": True, "forwarded": forwarded, "selected": actual, "reason": reason}
+    if shortwave_answer is not None:
+        result["shortwave_answer"] = shortwave_answer
+        result["shortwave_next"] = shortwave_next
+    return result
 
 
 def emit_message(device_id: str, biz_type: str, source_link: str, payload=None, transport="TCP") -> dict:
@@ -1582,8 +1606,9 @@ def cmd_policy_route(args) -> int:
     title("POLICY ROUTE ENGINE")
     if args.action == "start":
         ok("policy route engine is RUNNING")
-        info("normal: video/image/sensor -> 5G; alert/control -> 5G + shortwave; critical sensor -> satellite")
-        info("degraded: critical sensor -> shortwave + satellite; alert/control -> shortwave")
+        info("normal: video/image/sensor -> 5G; alert/control -> 5G + shortwave + satellite; critical sensor -> satellite")
+        info("degraded: critical sensor -> shortwave + satellite; alert/control -> shortwave + satellite (satellite unchanged)")
+        info("shortwave answers: fire only when 5G is up; fire/windspeed rotate per answer when 5G is down")
     else:
         warn("policy route engine is STOPPED")
     return 0
@@ -1777,11 +1802,16 @@ def cmd_uplink_transfer(args) -> int:
         (DEMO_DEVICE_IDS["control"], "control"),
     ]
     rows = []
+    rotations = []
     for _ in range(args.count):
         for index, (device_id, biz_type) in enumerate(jobs):
             result = emit_message(device_id, biz_type, ingress_link_for(index), transport="TCP")
             rows.append((result["msg_id"], biz_type, ",".join(result.get("forwarded", [])) or "-", result.get("reason", "")))
+            if result.get("shortwave_answer"):
+                rotations.append((result["msg_id"], result["shortwave_answer"], result["shortwave_next"]))
     table(("Message", "Business", "Actual link", "Decision"), rows)
+    for msg_id, answered, upcoming in rotations:
+        info("shortwave offline rotate: {} answered {} (next {})".format(msg_id, answered, upcoming))
     ok("uplink policy executed for {} business message(s)".format(len(rows)))
     return 0
 

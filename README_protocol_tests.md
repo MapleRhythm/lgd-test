@@ -158,10 +158,18 @@ VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信�
 edge_online=False，核心随即判定边缘离线）、向边缘网关发送 5G 断开信号
 （链路状态 connected=false，边缘打印 [LINK-STATUS]），并丢弃该组
 （演示边缘为 gateway_1/组1）全部上行业务报文——核心与边缘双双断开。
-`link-monitor.sh` 保持纯监测：加罩后在边缘终端执行即可看到 5G BELOW
-THRESHOLD 与降级路由（`--low/--normal` 仍可手动置位本地模型，不再下发
-任何服务器指令）。远端生产中转（47.99.47.169）只读，link_block 一律
-不下发，仅模型生效。
+策略路由按大纲 2.2.5 条目3对齐：5G 正常时视频/传感器数据经 5G 转发，
+告警/控制信息同步经短波与卫星转发，关键传感器经卫星；5G 低于阈值后
+短波改为传输关键传感器数据与告警/控制信息，卫星链路传输内容不变，
+关键传感器及告警/控制业务持续传输不中断。短波行为与真网关一致
+（gateway_merged.py 应答选择）：5G 正常时短波只应答 fire；5G 断开后
+fire/windspeed **按次轮换**应答（一条短信只装一种；"关键传感器数据"
+即风速数据）——本地模型在 route.jsonl 记 `shortwave_answer/
+shortwave_next` 明细，`start_uplink_transfer` 表格下方提示轮换，真网关
+终端打印 [BAOTONG-V2][OFFLINE-ROTATE]。`link-monitor.sh` 保持纯监测：
+加罩后在边缘终端执行即可看到 5G BELOW THRESHOLD 与降级路由
+（`--low/--normal` 仍可手动置位本地模型，不再下发任何服务器指令）。
+远端生产中转（47.99.47.169）只读，link_block 一律不下发，仅模型生效。
 
 ```bash
 ./cloud-mgr.sh --start
