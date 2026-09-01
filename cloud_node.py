@@ -28,7 +28,11 @@ class RedactedStdout:
     def __init__(self, stream):
         self.stream = stream
         self._suppress_next_newline = False
-        self._last_status = None
+        # Per-gateway last status: the relay interleaves heartbeat lines for
+        # every gateway group (gateway1/2/3), so one shared value would see
+        # each line as a flip against the previous gateway's status and
+        # spam up/down notices.
+        self._last_status = {}
 
     def _colour(self, code, text):
         # Same rule as the model layer: plain when piped or NO_COLOR is set.
@@ -47,10 +51,10 @@ class RedactedStdout:
         if not match:
             return
         gateway, status = match.group(1), match.group(2)
-        if status == self._last_status:
+        if status == self._last_status.get(gateway):
             return
-        first_observation = self._last_status is None
-        self._last_status = status
+        first_observation = gateway not in self._last_status
+        self._last_status[gateway] = status
         if first_observation:
             return
         if status == "0":
