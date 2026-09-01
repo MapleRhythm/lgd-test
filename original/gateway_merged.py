@@ -1383,6 +1383,12 @@ def whitelist_filter_enabled():
     return os.path.exists(whitelist_filter_marker_path())
 
 
+# [TRUST-ACCESS] 过滤状态切换公告：多条端侧长连接各自发现切换时全局
+# 去重——同一状态全网关只报一次（state 为最近一次已公告的过滤状态）。
+_TRUST_ACCESS_ANNOUNCED = {"state": None}
+_TRUST_ACCESS_LOCK = threading.Lock()
+
+
 class JsonCloudSender:
     """将 8888 收到的 JSON 发送至统一云端 11500。"""
 
@@ -1617,10 +1623,13 @@ def handle_json_client(
         # 名单（全部放行）；标记落下后才按服务器名单拒收名单外设备。
         filter_on = whitelist_filter and whitelist is not None and whitelist_filter_enabled()
         if filter_on != last_filter_on:
-            if filter_on:
-                log("[TRUST-ACCESS] 白名单过滤已生效，名单外设备将被拒收")
-            elif whitelist_filter and whitelist is not None:
-                log("[TRUST-ACCESS] 白名单过滤未启用，暂不按名单过滤（全部放行）")
+            with _TRUST_ACCESS_LOCK:
+                if _TRUST_ACCESS_ANNOUNCED["state"] != filter_on:
+                    _TRUST_ACCESS_ANNOUNCED["state"] = filter_on
+                    if filter_on:
+                        log("[TRUST-ACCESS] 白名单过滤已生效，名单外设备将被拒收")
+                    elif whitelist_filter and whitelist is not None:
+                        log("[TRUST-ACCESS] 白名单过滤未启用，暂不按名单过滤（全部放行）")
             last_filter_on = filter_on
         if filter_on:
             if not whitelist_allow(payload, whitelist, gateway_id):

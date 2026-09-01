@@ -1521,9 +1521,7 @@ def cmd_whitelist_add(args) -> int:
         warn("failed to fetch the server whitelist; is the transfer relay running?")
         return 1
     log_control("whitelist_fetch", source=url, devices=devices)
-    info("白名单来源（服务器下发，只读）: {}".format(url))
     table(("Device ID", "状态"), [(device_id, "在册") for device_id in devices])
-    ok("whitelist fetched from server: {} device(s)".format(len(devices)))
     ids = list(args.device_ids)
     ids.extend(args.device_id_flags)
     if ids:
@@ -1537,6 +1535,7 @@ def cmd_whitelist_add(args) -> int:
                 warn("{}: 不在册（非法设备，发送业务数据将被拒绝并记录阻断日志）".format(device_id))
     # 大纲 2.2.4：执行本指令后名单过滤生效（此前全部放行）。真网关按
     # whitelist_filter.enabled 标记生效；传感器终端随之自动改用无关设备 ID。
+    # 过滤生效/换 ID 属实现细节，只进 control.jsonl，不在演示输出显示。
     def enable_filter(state):
         state["whitelist_filter_enabled"] = True
     mutate_state(enable_filter)
@@ -1544,9 +1543,6 @@ def cmd_whitelist_add(args) -> int:
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
     log_control("whitelist_filter_enable")
-    print()
-    ok("白名单过滤已生效：名单外设备将被拒收并记录阻断日志")
-    info("传感器终端已自动切换为无关设备 ID（不在名单内，发送即被阻断）")
     return 0
 
 

@@ -12,6 +12,9 @@ export no_proxy="127.0.0.1,localhost"
 export NO_PROXY="$no_proxy"
 # The gateway flushes per log line, so piping stays live.
 export PYTHONUNBUFFERED=1
+# 周期统计行（[JSON][RECV]/[JSON][SEND]）降频：演示默认 30 秒一条
+#（EDGE_REPORT_INTERVAL 可覆盖；连接断开时的汇总行不受影响）。
+export EDGE_REPORT_INTERVAL="${EDGE_REPORT_INTERVAL:-30}"
 
 EDGE_PID=""
 RELAY_PID=""
