@@ -181,7 +181,6 @@ STATUS_COLOURS = {
     "AVAILABLE": "green", "5G AVAILABLE": "green", "normal": "green",
     "BELOW THRESHOLD": "red", "5G BELOW THRESHOLD": "red", "degraded": "red",
     "5g_below_threshold": "red", "no_available_route": "red",
-    "policy_route_not_started": "red",
 }
 
 
@@ -876,7 +875,13 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
             ],
         })
 
-    proposed = proposed_routes(state, biz_type) if state.get("route_enabled") else []
+    # 大纲顺序里策略路由 2.2.5 第3条才启动：未启动期间不做业务分类，
+    # 已受理报文走默认 5G 上行——与真网关一致（转发门开着即有业务流量
+    # 到云端），2.2.3/2.2.4 的端到端核对不依赖策略路由已启动。
+    if state.get("route_enabled"):
+        proposed = proposed_routes(state, biz_type)
+    else:
+        proposed = ["5g"]
     actual = [link for link in proposed if link_is_up(state, link)]
     reason = "normal" if not degraded_mode(state) else "5g_below_threshold"
     route_record = {
@@ -909,15 +914,9 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
         })
         return {"accepted": True, "forwarded": [], "reason": "forwarder_stopped", "selected": actual}
     if not actual:
-        # 阻断行按真实原因记录：路由程序未启动 / 5G 低于阈值 / 无可用路由。
-        # reason（模式标签 normal/5g_below_threshold）放在阻断行上会误导
-        # （"正常却没送达"），只保留在 route_decision 与成功行。
-        if not state.get("route_enabled"):
-            block_reason = "policy_route_not_started"
-        elif degraded_mode(state):
-            block_reason = "5g_below_threshold"
-        else:
-            block_reason = "no_available_route"
+        # 阻断行按真实原因记录（模式标签 normal 放阻断行上会误导）：
+        # 默认/备选路由全部不可用——5G 低于阈值，或策略路由选中集为空。
+        block_reason = "5g_below_threshold" if degraded_mode(state) else "no_available_route"
         append_record("edge.jsonl", {
             "timestamp": now_iso(), "stage": "delivery_blocked", "device_id": device_id,
             "biz_type": biz_type, "msg_id": msg_id, "link_id": "", "reason": block_reason,
