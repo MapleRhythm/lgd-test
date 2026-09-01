@@ -1669,6 +1669,35 @@ def cmd_cloud_query(args) -> int:
     return cmd_query_cloud_log(args)
 
 
+def _relay_group_control(online):
+    """大纲 2.2.5 链路监控联动真实中转的服务器下发值（本地中转控制 API）。
+
+    original/server_v8.py 的控制 HTTP（默认 11507）：
+      /stop1|2|3    该组 group_enabled=False——服务器向核心网关下发心跳
+                    status=0/edge_online=False、向边缘网关下发链路状态
+                    connected=false，组内 JSON/媒体报文全部丢弃，
+                    即"5G 断开"（等价 5G 天线加屏蔽罩低于阈值）；
+      /recover1|2|3 恢复。演示边缘注册为 gateway_1（组 1）。
+    远端中转是生产环境（只读）：非 127.x 主机一律拒绝下发，仅模型生效。
+    """
+    relay_host = os.environ.get("PROTOCOL_TEST_RELAY_HOST", "127.0.0.1")
+    if relay_host != "localhost" and not relay_host.startswith("127."):
+        warn("远端中转为生产环境（只读），不下发服务器控制指令，仅本地模型生效")
+        return None
+    port = os.environ.get("PROTOCOL_TEST_CONTROL_PORT", "11507")
+    group = os.environ.get("PROTOCOL_TEST_CONTROL_GROUP", "1")
+    path = ("/recover" if online else "/stop") + group
+    url = "http://{}:{}{}".format(relay_host, port, path)
+    try:
+        with urllib.request.urlopen(url, timeout=3) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        warn("服务器控制指令未送达（{}）: {}".format(url, exc))
+        return None
+    log_control("relay_group_control", url=url, response=body)
+    return url
+
+
 def cmd_link_monitor(args) -> int:
     def update(state):
         if args.signal is not None:
@@ -1683,6 +1712,10 @@ def cmd_link_monitor(args) -> int:
             state["links"]["5g"]["online"] = True
         return state["links"]["5g"]["online"]
     online = mutate_state(update)
+    # 与真网关同步：向本地中转下发 /stop1（5G 断开）或 /recover1（恢复），
+    # 云端心跳收到 status=0、边缘收到 link_status connected=false，
+    # 与本地模型 BELOW THRESHOLD 的判定一致。
+    control_url = _relay_group_control(bool(online))
     state = snapshot_state()
     mode = "normal" if link_is_up(state, "5g") else "degraded"
     log_control("link_status", online=online, mode=mode)
@@ -1692,6 +1725,11 @@ def cmd_link_monitor(args) -> int:
         ok("5G signal is above threshold")
     else:
         warn("5G signal is below threshold; degraded routing is active")
+    if control_url:
+        info("服务器控制指令已下发 {}（{}）".format(
+            control_url,
+            "云端心跳 status=0，边缘链路 connected=false" if not online
+            else "云端心跳/边缘链路恢复真实注册状态"))
     return 0
 
 

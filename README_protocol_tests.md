@@ -146,6 +146,13 @@ VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信�
 
 ## 2.2.5 function test
 
+`link-monitor.sh` 除更新本地模型判定外，还会向**本地中转**（original/
+server_v8.py 控制 API 11507）下发服务器控制值：`--low/--down` 下发
+`/stop1`（演示边缘为 gateway_1/组1——云端心跳收到 status=0、边缘收到
+链路状态 connected=false、组内 JSON/媒体报文被中转丢弃，即"5G 断开"，
+等价 5G 天线加屏蔽罩低于阈值）；`--normal/--up` 下发 `/recover1` 恢复。
+远端生产中转（47.99.47.169）只读，一律不下发，仅模型生效。
+
 ```bash
 ./cloud-mgr.sh --start
 ./start_uplink_transfer.sh
