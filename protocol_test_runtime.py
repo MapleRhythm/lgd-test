@@ -1421,13 +1421,8 @@ def cmd_query_service_log(args) -> int:
 
 def cmd_query_cloud_log(args) -> int:
     title("CLOUD SERVICE LOG")
-    if cloud_live_enabled():
-        print_live_cloud_section(
-            filter_types=split_values(args.device_type) if args.device_type else None,
-            from_time=args.from_time,
-            to_time=args.to_time,
-        )
-        print("")
+    # 大纲 2.2.4 只要求云端日志与一致性核对；真实链路的实时采样表
+    # 属于 2.2.3 第 10 步 query_link_data 的端到端查询，这里不再重复显示。
     records = read_records("cloud.jsonl")
     wanted = set(split_values(args.device_type)) if args.device_type else None
 
