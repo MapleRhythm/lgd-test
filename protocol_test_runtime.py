@@ -1670,7 +1670,7 @@ def cmd_cloud_query(args) -> int:
 
 
 def _relay_group_control(online):
-    """大纲 2.2.5 链路监控联动真实中转的服务器下发值（本地中转控制 API）。
+    """另一台设备向服务器下发的 POST 控制指令（本地中转控制 API）。
 
     original/server_v8.py 的控制 HTTP（默认 11507）：
       /stop1|2|3    该组 group_enabled=False——服务器向核心网关下发心跳
@@ -1688,14 +1688,15 @@ def _relay_group_control(online):
     group = os.environ.get("PROTOCOL_TEST_CONTROL_GROUP", "1")
     path = ("/recover" if online else "/stop") + group
     url = "http://{}:{}{}".format(relay_host, port, path)
+    request = urllib.request.Request(url, data=b"", method="POST")
     try:
-        with urllib.request.urlopen(url, timeout=3) as response:
+        with urllib.request.urlopen(request, timeout=3) as response:
             body = json.loads(response.read().decode("utf-8"))
     except (OSError, ValueError) as exc:
         warn("服务器控制指令未送达（{}）: {}".format(url, exc))
         return None
     log_control("relay_group_control", url=url, response=body)
-    return url
+    return {"url": url, "response": body}
 
 
 def cmd_link_monitor(args) -> int:
@@ -1712,10 +1713,6 @@ def cmd_link_monitor(args) -> int:
             state["links"]["5g"]["online"] = True
         return state["links"]["5g"]["online"]
     online = mutate_state(update)
-    # 与真网关同步：向本地中转下发 /stop1（5G 断开）或 /recover1（恢复），
-    # 云端心跳收到 status=0、边缘收到 link_status connected=false，
-    # 与本地模型 BELOW THRESHOLD 的判定一致。
-    control_url = _relay_group_control(bool(online))
     state = snapshot_state()
     mode = "normal" if link_is_up(state, "5g") else "degraded"
     log_control("link_status", online=online, mode=mode)
@@ -1725,11 +1722,47 @@ def cmd_link_monitor(args) -> int:
         ok("5G signal is above threshold")
     else:
         warn("5G signal is below threshold; degraded routing is active")
-    if control_url:
-        info("服务器控制指令已下发 {}（{}）".format(
-            control_url,
-            "云端心跳 status=0，边缘链路 connected=false" if not online
-            else "云端心跳/边缘链路恢复真实注册状态"))
+    return 0
+
+
+def cmd_link_block(args) -> int:
+    """大纲 2.2.5 的 5G 屏蔽演示：模拟另一台设备向服务器下发 POST 指令。
+
+    服务器（original/server_v8.py 控制 API）收到指令后自行完成下发：
+    /stop1 断开到核心网关的心跳（status=0、edge_online=False）、向边缘
+    网关发送 5G 断开信号（链路状态 connected=false）并丢弃该组业务报文
+    ——核心与边缘随之双双断开；/recover1 恢复。本地模型同步 5G 链路
+    状态，供 link-monitor / query_link_data 等命令观察。
+    """
+    if args.stop_flag and args.recover:
+        warn("--stop 与 --recover 不能同时指定")
+        return 2
+    online = bool(args.recover)
+
+    def update(state):
+        state["links"]["5g"]["online"] = online
+        return online
+    mutate_state(update)
+    state = snapshot_state()
+    mode = "normal" if link_is_up(state, "5g") else "degraded"
+    log_control("link_status", online=online, mode=mode)
+    title("5G LINK BLOCK COMMAND")
+    result = _relay_group_control(online)
+    rows = [("Device request",
+             "POST {}  (另一台设备下发)".format(result["url"]) if result else "未送达（仅本地模型生效）")]
+    if result:
+        rows.append(("Server response", json.dumps(result["response"], ensure_ascii=False)))
+        rows.append(("Server -> core gateway", "heartbeat normal" if online else "heartbeat status=0, edge_online=False"))
+        rows.append(("Server -> edge gateway", "link status connected=true" if online else "link status connected=false"))
+        rows.append(("Server -> group traffic", "forwarded (group enabled)" if online else "dropped (group disabled)"))
+        info("服务器已断开到核心网关的心跳，并向边缘网关下发 5G 断开信号，核心与边缘均断开" if not online
+             else "服务器已恢复核心网关心跳与边缘链路状态，业务报文恢复转发")
+    rows.append(("Local model", "5G " + ("BELOW THRESHOLD" if mode == "degraded" else "AVAILABLE")))
+    table(("Step", "Value"), rows)
+    if mode == "normal":
+        ok("5G link recovered")
+    else:
+        warn("5G link blocked (shield on); core heartbeat and edge link disconnected")
     return 0
 
 
@@ -1965,6 +1998,11 @@ def build_parser():
     item.add_argument("--down", action="store_true")
     item.add_argument("--up", action="store_true")
     item.set_defaults(function=cmd_link_monitor)
+
+    item = sub.add_parser("link-block")
+    item.add_argument("--stop", dest="stop_flag", action="store_true")
+    item.add_argument("--recover", action="store_true")
+    item.set_defaults(function=cmd_link_block)
 
     item = sub.add_parser("uplink-transfer")
     item.add_argument("--count", type=int, default=1)

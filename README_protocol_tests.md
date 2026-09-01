@@ -146,22 +146,34 @@ VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信�
 
 ## 2.2.5 function test
 
-`link-monitor.sh` 除更新本地模型判定外，还会向**本地中转**（original/
-server_v8.py 控制 API 11507）下发服务器控制值：`--low/--down` 下发
-`/stop1`（演示边缘为 gateway_1/组1——云端心跳收到 status=0、边缘收到
-链路状态 connected=false、组内 JSON/媒体报文被中转丢弃，即"5G 断开"，
-等价 5G 天线加屏蔽罩低于阈值）；`--normal/--up` 下发 `/recover1` 恢复。
-远端生产中转（47.99.47.169）只读，一律不下发，仅模型生效。
+2.2.5 的 5G 屏蔽演示由**另一台设备**向服务器下发 POST 控制指令
+（original/server_v8.py 控制 API 11507），服务器收到后自行完成下发：
+
+```bash
+./link_block.sh --stop      # 另一台设备：POST /stop1（等价给 5G 天线加屏蔽罩）
+./link_block.sh --recover   # 另一台设备：POST /recover1（摘罩恢复）
+```
+
+`/stop1` 后服务器：断开到核心网关 gateway_v1 的心跳（下发 status=0、
+edge_online=False，核心随即判定边缘离线）、向边缘网关发送 5G 断开信号
+（链路状态 connected=false，边缘打印 [LINK-STATUS]），并丢弃该组
+（演示边缘为 gateway_1/组1）全部上行业务报文——核心与边缘双双断开。
+`link-monitor.sh` 保持纯监测：加罩后在边缘终端执行即可看到 5G BELOW
+THRESHOLD 与降级路由（`--low/--normal` 仍可手动置位本地模型，不再下发
+任何服务器指令）。远端生产中转（47.99.47.169）只读，link_block 一律
+不下发，仅模型生效。
 
 ```bash
 ./cloud-mgr.sh --start
 ./start_uplink_transfer.sh
 ./query_link_data.sh
-./link-monitor.sh --low
+./link_block.sh --stop
+./link-monitor.sh
 ./start_uplink_transfer.sh
 ./query_link_data.sh
 ./edge-query.sh --route-switch
-./link-monitor.sh --normal
+./link_block.sh --recover
+./link-monitor.sh
 ./start_uplink_transfer.sh
 ./query_link_data.sh
 ./msg-encap.sh --start
