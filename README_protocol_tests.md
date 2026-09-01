@@ -52,7 +52,10 @@ cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final
 ```
 
 The wrapper starts the original edge node in the background while keeping the
-same terminal available for the edge-side test scripts. The default
+same terminal available for the edge-side test scripts. Each edge-terminal
+start also opens a fresh demo session: the forward/access/filter gates are
+reset and every jsonl ledger is cleared (same list as `init --reset`), so
+per-run statistics such as `trust_access_calculate.sh` never mix runs. The default
 `KEEP_DURATION=600` matches the document requirement. For a short manual check,
 use `./keep_transfer.sh --duration 10 --interval 0.5` in the edge terminal.
 

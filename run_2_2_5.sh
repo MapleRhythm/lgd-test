@@ -11,6 +11,9 @@ section() {
 }
 
 section '2.2.5 PRECONDITIONS'
+# 与 2.2.3/2.2.4 分节脚本一致：重跑自动清台账（--reset），随后普通 init
+# 重新开接入门（2.2.5 上行业务需要边缘受理）。
+./init_link_connect.sh --reset
 ./init_link_connect.sh
 ./edge_forward.sh --start
 ./policy-route.sh --start

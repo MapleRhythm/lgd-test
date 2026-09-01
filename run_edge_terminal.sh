@@ -110,6 +110,13 @@ if changed:
 PY
 fi
 
+# 开启边缘终端即开启一次新演示会话：清空模型台账（与 init --reset 同一份
+# LOG_FILES 清单，含云端实时回传缓存），历史统计不跨会话残留——每次重跑
+# trust_access_calculate 等统计自然从零开始，无需手动 init --reset。
+PROTOCOL_TEST_STATE_DIR="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}" \
+  python3 -c 'import protocol_test_runtime as rt; rt.clear_records(); (rt.STATE_DIR / "cloud_rx_live.jsonl").unlink(missing_ok=True)'
+printf '  OK   ledger files cleared (fresh demo session)\n'
+
 # 显示层把 gateway_1/2/4(5) 之类的通道标识统一映射为 scene_1/2/3
 #（仅控制台显示；协议字段与发往中转的报文不变）。
 ./edge_node.sh \
