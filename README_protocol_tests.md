@@ -107,9 +107,9 @@ Use a short duration while checking the workflow, for example
 各自独立 TCP 长连接；状态写入与 msg_id 分配均有跨进程锁）：
 
 ```bash
-./run_device_terminal.sh video    # 视频流终端 182D48D7（Wi-Fi，含真实媒体口 7777）
-./run_device_terminal.sh sensor   # 传感器终端 3C15DB07（蓝牙）
-./run_device_terminal.sh env      # 环境监测模块终端 990E261B（有线）
+./run_device_terminal.sh video    # 视频流终端 182D48D7（有线，含真实媒体口 7777）
+./run_device_terminal.sh sensor   # 传感器终端 3C15DB07（Wi-Fi）
+./run_device_terminal.sh env      # 环境监测模块终端 990E261B（Wi-Fi/蓝牙轮换）
 ```
 
 三个终端里分别执行各自的 start 命令（可同时运行），随后在边缘网关终端与

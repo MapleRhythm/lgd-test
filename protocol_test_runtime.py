@@ -1283,16 +1283,19 @@ def cmd_query_link_data(args) -> int:
 
 def source_command(args, source_kind: str) -> int:
     title("SOURCE: {} DATA".format(source_kind.upper()))
+    # 大纲 2.2.4 三个端侧终端的接入链路：视频流=有线，传感器=Wi-Fi，
+    # 环境监测模块=Wi-Fi/蓝牙轮换（每条报文走一条，轮流分担）。
     defaults = {
-        "video": (DEMO_DEVICE_IDS["video"], "wifi"),
-        "sensor": (DEMO_DEVICE_IDS["sensor"], "bluetooth"),
-        "env": (DEMO_DEVICE_IDS["env"], "wired"),
+        "video": (DEMO_DEVICE_IDS["video"], ("wired",)),
+        "sensor": (DEMO_DEVICE_IDS["sensor"], ("wifi",)),
+        "env": (DEMO_DEVICE_IDS["env"], ("wifi", "bluetooth", "wired")),
     }
-    device_id, link_id = defaults[source_kind]
+    device_id, links = defaults[source_kind]
     if args.device_id:
         device_id = args.device_id
     results = []
     def producer(index):
+        link_id = links[index % len(links)]
         result = emit_message(device_id, source_kind, link_id, transport="TCP")
         results.append(result)
         if source_kind == "video" and os.getenv("PROTOCOL_TEST_LIVE_MEDIA", "0") == "1":
@@ -1728,18 +1731,24 @@ def build_parser():
     item.add_argument("--timeout", type=int, default=1)
     item.set_defaults(function=cmd_ping)
 
+    # 2.2.3 business commands default to the terminal's identity: the env
+    # monitor terminal exports PROTOCOL_TEST_DEFAULT_BIZ=env so the whole
+    # 2.2.3 flow rides the environment-monitoring device; everywhere else
+    # the default stays the sensor device.
+    default_biz = os.getenv("PROTOCOL_TEST_DEFAULT_BIZ", "sensor")
+
     item = sub.add_parser("start-test")
     item.add_argument("--count", type=int, default=3)
-    item.add_argument("--device-id", default=DEMO_DEVICE_IDS["sensor"])
-    item.add_argument("--biz-type", default="sensor")
+    item.add_argument("--device-id", default=DEMO_DEVICE_IDS.get(default_biz, DEMO_DEVICE_IDS["sensor"]))
+    item.add_argument("--biz-type", default=default_biz)
     item.add_argument("--link", choices=INGRESS, default="wired")
     item.set_defaults(function=cmd_start_test)
 
     item = sub.add_parser("keep-transfer")
     item.add_argument("--duration", type=float, default=600.0)
     item.add_argument("--interval", type=float, default=1.0)
-    item.add_argument("--device-id", default=DEMO_DEVICE_IDS["sensor"])
-    item.add_argument("--biz-type", default="sensor")
+    item.add_argument("--device-id", default=DEMO_DEVICE_IDS.get(default_biz, DEMO_DEVICE_IDS["sensor"]))
+    item.add_argument("--biz-type", default=default_biz)
     item.add_argument("--link", default="wired")
     item.add_argument("--report-every", type=int, default=10)
     item.set_defaults(count=None)
@@ -1748,8 +1757,8 @@ def build_parser():
     item = sub.add_parser("multi-bandwidth")
     item.add_argument("--duration", type=float, default=5.0)
     item.add_argument("--interval", type=float, default=0.05)
-    item.add_argument("--device-id", default=DEMO_DEVICE_IDS["sensor"])
-    item.add_argument("--biz-type", default="sensor")
+    item.add_argument("--device-id", default=DEMO_DEVICE_IDS.get(default_biz, DEMO_DEVICE_IDS["sensor"]))
+    item.add_argument("--biz-type", default=default_biz)
     item.set_defaults(function=cmd_bandwidth)
 
     item = sub.add_parser("edge-forward")
