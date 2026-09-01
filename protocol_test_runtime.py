@@ -609,10 +609,11 @@ def cloud_live_enabled() -> bool:
 
 
 # 大纲口径：接入云端的是三条边缘网关通道（wifi 旁路通道与卫星通道不进查询表）。
+# 展示名统一为 scene_1/2/3；键是与远端中转/协议一致的通道标识，只改显示不改协议。
 LIVE_EDGE_CHANNEL_LABELS = {
-    "gateway_1": "边缘网关1",
-    "gateway_2": "边缘网关2",
-    "gateway_5": "边缘网关3",
+    "gateway_1": "scene_1",
+    "gateway_2": "scene_2",
+    "gateway_5": "scene_3",
 }
 LIVE_EDGE_STATUS_PORT = 10015
 
@@ -782,7 +783,8 @@ def print_live_cloud_section(filter_types=None, from_time=None, to_time=None):
         reachable, len(states)))
     table(
         ("Channel", "Source", "Device", "Business", "Message", "Link"),
-        [(row["channel"], row["origin"], row["device_id"] or "-", row["biz_type"] or "-",
+        [(LIVE_EDGE_CHANNEL_LABELS.get(row["channel"], row["channel"]), row["origin"],
+          row["device_id"] or "-", row["biz_type"] or "-",
           row["msg_id"] or "-", row["link_id"] or "-") for row in rows]
         or [("-", "-", "-", "-", "-", "no matching live records")],
     )

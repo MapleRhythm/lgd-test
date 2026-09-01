@@ -104,6 +104,8 @@ if state.get("multi_source_enabled"):
 PY
 fi
 
+# 显示层把 gateway_1/2/4(5) 之类的通道标识统一映射为 scene_1/2/3
+#（仅控制台显示；协议字段与发往中转的报文不变）。
 ./edge_node.sh \
   --media-listen-host "${EDGE_MEDIA_HOST:-127.0.0.1}" \
   --media-listen-port "${EDGE_MEDIA_PORT:-7777}" \
@@ -122,7 +124,8 @@ fi
   --whitelist-interval "${EDGE_WHITELIST_INTERVAL:-30}" \
   --whitelist-filter \
   --link-monitor-interval "${EDGE_LINK_MONITOR_INTERVAL:-60}" \
-  --compact-log > >(grep --line-buffered -vE '\[WHITELIST\]|\[EDGE-HEARTBEAT\]|\[JSON\]\[SHORTWAVE\]') &
+  --compact-log > >(grep --line-buffered -vE '\[WHITELIST\]|\[EDGE-HEARTBEAT\]|\[JSON\]\[SHORTWAVE\]' \
+    | sed -u 's/gateway_1/scene_1/g; s/gateway_2/scene_2/g; s/gateway_4/scene_3/g; s/gateway_5/scene_3/g; s/Gateway1/scene_1/g; s/Gateway2/scene_2/g; s/Gateway4/scene_3/g; s/Gateway5/scene_3/g') &
 EDGE_PID=$!
 
 sleep "${EDGE_STARTUP_WAIT:-3}"
