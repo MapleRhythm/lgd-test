@@ -1,0 +1,8 @@
+# 运行态与本地状态（演示/联调产生，不入库）
+.protocol-test/
+.state/
+*.log
+satellite_relay.db
+received_images/
+__pycache__/
+*.pyc

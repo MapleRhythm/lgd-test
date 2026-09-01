@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Public cloud-node entry point for the final gateway source tree.
+
+The files in this directory are deployment captures wrapped in a shell
+heredoc.  This launcher removes only that wrapper in memory and executes the
+captured source.  Console output is redacted so internal transport details do
+not appear in a test-terminal recording.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+import types
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+_IP_PORT = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}\b")
+_PORT = re.compile(r"(?<!\d)(?:10\d{3}|11\d{3}|7\d{3}|8\d{3})(?!\d)")
+
+
+class RedactedStdout:
+    def __init__(self, stream):
+        self.stream = stream
+        self._suppress_next_newline = False
+
+    def write(self, text):
+        if self._suppress_next_newline and text in {"\n", "\r\n"}:
+            self._suppress_next_newline = False
+            return len(text)
+        self._suppress_next_newline = False
+        # Core-gateway heartbeat chatter (periodic status pings plus rare
+        # connect/reconnect transitions) is transport bookkeeping, not demo
+        # output: drop it from the terminal entirely.
+        if "[HEARTBEAT-UP]" in text:
+            self._suppress_next_newline = True
+            return len(text)
+        text = _IP_PORT.sub("[REDACTED ENDPOINT]", text)
+        text = _PORT.sub("[REDACTED PORT]", text)
+        text = text.replace("old framed downstream", "[REDACTED CHANNEL]")
+        text = text.replace("new JSON downstream", "[REDACTED CHANNEL]")
+        text = text.replace("upstream", "[REDACTED]")
+        text = text.replace("UPSTREAM", "[REDACTED]")
+        text = text.replace("server", "[REDACTED]")
+        text = text.replace("Server", "[REDACTED]")
+        self.stream.write(text)
+
+    def flush(self):
+        self.stream.flush()
+
+    def isatty(self):
+        return self.stream.isatty()
+
+
+def unwrap(path: Path) -> str:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines(True)
+    if lines and lines[0].lstrip().startswith("cat >"):
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "EOF":
+            lines = lines[:-1]
+    return "".join(lines)
+
+
+def load_module(name: str, path: Path):
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    module.__package__ = ""
+    sys.modules[name] = module
+    exec(compile(unwrap(path), str(path), "exec"), module.__dict__)
+    return module
+
+
+def main() -> None:
+    sys.stdout = RedactedStdout(sys.stdout)
+    config_module = load_module("config", ROOT / "original" / "config.py")
+    # WSL2 has no BaoTong network interface; keep this optional hardware path
+    # quiet while the cloud management node and protocol data paths run.
+    config_module.BAOTONG_HF_ENABLED = False
+    # Demo pacing: keep /latest.json served for 5 minutes after the last
+    # packet so ./query_link_data.sh still shows the live channel table once
+    # a transfer finishes (deployment default in config.py is 30 s).
+    config_module.JSON_MAX_AGE_SECONDS = 300.0
+    source_path = ROOT / "original" / "gateway_v1.py"
+    source = unwrap(source_path)
+    namespace = {"__name__": "__main__", "__file__": str(source_path)}
+    exec(compile(source, str(source_path), "exec"), namespace)
+
+
+if __name__ == "__main__":
+    main()
