@@ -235,6 +235,7 @@ def default_state() -> dict:
         "forwarder_enabled": False,
         "encapsulation_enabled": False,
         "multi_source_enabled": True,
+        "whitelist_filter_enabled": False,
         "cloud_manager_enabled": True,
         "channels": {
             "embb": {"label": "high-bandwidth", "weight": 1, "rate_mbps": 10.0},
@@ -810,7 +811,10 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
             "reason": "multi_source_access_not_started",
         })
         return {"accepted": False, "forwarded": [], "reason": "multi_source_access_not_started"}
-    allowed = effective_whitelist(state.get("whitelist", []))
+    # 大纲 2.2.4 可信接入：trust_access_add_whitelist 执行前不做名单过滤
+    #（全部放行）；执行后按服务器名单裁决，与真网关标记一致。
+    filter_on = bool(state.get("whitelist_filter_enabled"))
+    allowed = effective_whitelist(state.get("whitelist", [])) if filter_on else []
     # An empty list means "allow everything" -- same semantics as the edge
     # gateway's WhitelistManager, so local verdicts track the real edge.
     auth_ok = not allowed or device_id in set(allowed)
@@ -819,7 +823,8 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
         "device_id": device_id,
         "msg_id": msg_id,
         "accepted": auth_ok,
-        "reason": "whitelist" if auth_ok else "device_id_not_in_whitelist",
+        "reason": ("device_id_not_in_whitelist" if not auth_ok
+                   else "whitelist" if filter_on else "whitelist_filter_off"),
     }
     append_record("auth.jsonl", auth_record)
     if not auth_ok:
@@ -943,6 +948,8 @@ def cmd_init(args) -> int:
         (STATE_DIR / "cloud_rx_live.jsonl").unlink(missing_ok=True)
         # 多源接入门同样复位：2.2.4 起步时边缘暂不受理端侧数据。
         (STATE_DIR / "multi_source_access.enabled").unlink(missing_ok=True)
+        # 可信接入过滤复位：起步不过滤名单，trust_access_add_whitelist 后生效。
+        (STATE_DIR / "whitelist_filter.enabled").unlink(missing_ok=True)
     def update(state):
         for link_id in INGRESS:
             state["links"][link_id]["online"] = True
@@ -953,6 +960,7 @@ def cmd_init(args) -> int:
             state["forwarder_enabled"] = False
             state["encapsulation_enabled"] = False
             state["multi_source_enabled"] = False
+            state["whitelist_filter_enabled"] = False
             state["cloud_manager_enabled"] = True
         else:
             # 大纲 2.2.3 步骤1：初始化接入链路即开始受理端侧接入。
@@ -1341,18 +1349,31 @@ def source_command(args, source_kind: str) -> int:
         "sensor": (DEMO_DEVICE_IDS["sensor"], ("wifi",)),
         "env": (DEMO_DEVICE_IDS["env"], ("wifi", "bluetooth", "wired")),
     }
-    device_id, links = defaults[source_kind]
-    if args.device_id:
-        device_id = args.device_id
+    base_device_id, links = defaults[source_kind]
+
+    def current_device_id():
+        # 大纲 2.2.4 可信接入：trust_access_add_whitelist 执行（过滤生效）后，
+        # 传感器终端逐报文自动改用无关设备 ID，扮演名单外非法设备；
+        # 正在持续发送的进程无需重启即完成切换。其余终端身份不变。
+        if (source_kind == "sensor" and not args.device_id
+                and (STATE_DIR / "whitelist_filter.enabled").exists()):
+            return "ILLEGAL-SENSOR"
+        return args.device_id or base_device_id
+
     results = []
     def producer(index):
         link_id = links[index % len(links)]
+        device_id = current_device_id()
         result = emit_message(device_id, source_kind, link_id, transport="TCP")
         results.append(result)
         if source_kind == "video" and os.getenv("PROTOCOL_TEST_LIVE_MEDIA", "0") == "1":
             send_live_media(build_payload(device_id, source_kind, link_id))
     count = run_loop(args, producer)
-    table(("Source", "Device", "Packets", "Accepted", "Forwarded"), [(source_kind, device_id, count, sum(1 for r in results if r["accepted"]), sum(len(r.get("forwarded", [])) for r in results))])
+    used_ids = []
+    for result in results:
+        if result["device_id"] not in used_ids:
+            used_ids.append(result["device_id"])
+    table(("Source", "Device", "Packets", "Accepted", "Forwarded"), [(source_kind, " -> ".join(used_ids), count, sum(1 for r in results if r["accepted"]), sum(len(r.get("forwarded", [])) for r in results))])
     ok("{} source data generation completed".format(source_kind))
     return 0
 
@@ -1480,7 +1501,9 @@ def cmd_query_cloud_log(args) -> int:
 
 def cmd_whitelist_add(args) -> int:
     """大纲 2.2.4 可信接入第一步：白名单由服务器下发（只读），
-    本命令从服务器拉取并打印；传入的设备 ID 逐个做在册核对。"""
+    本命令从服务器拉取并打印；传入的设备 ID 逐个做在册核对。
+    执行后名单过滤生效（此前不过滤、全部放行），传感器终端随之
+    自动改用无关设备 ID，作为名单外非法设备被拒收。"""
     url = os.getenv("PROTOCOL_TEST_WHITELIST_URL", "").strip() or "http://127.0.0.1:11502/whitelist"
     title("TRUSTED ACCESS WHITELIST")
     devices = None
@@ -1509,6 +1532,18 @@ def cmd_whitelist_add(args) -> int:
                 ok("{}: 在册（合法设备，发送业务数据将通过认证接入）".format(device_id))
             else:
                 warn("{}: 不在册（非法设备，发送业务数据将被拒绝并记录阻断日志）".format(device_id))
+    # 大纲 2.2.4：执行本指令后名单过滤生效（此前全部放行）。真网关按
+    # whitelist_filter.enabled 标记生效；传感器终端随之自动改用无关设备 ID。
+    def enable_filter(state):
+        state["whitelist_filter_enabled"] = True
+    mutate_state(enable_filter)
+    marker = STATE_DIR / "whitelist_filter.enabled"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    log_control("whitelist_filter_enable")
+    print()
+    ok("白名单过滤已生效：名单外设备将被拒收并记录阻断日志")
+    info("传感器终端已自动切换为无关设备 ID（不在名单内，发送即被阻断）")
     return 0
 
 

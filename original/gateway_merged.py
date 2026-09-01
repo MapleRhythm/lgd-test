@@ -1369,6 +1369,20 @@ def multi_source_enabled():
     return os.path.exists(multi_source_marker_path())
 
 
+# ---------------------------------------------------------------------------
+# 可信接入过滤开关（大纲 2.2.4）：边缘启动时不过滤名单（全部放行）；
+# ./trust_access_add_whitelist.sh 从服务器拉取白名单并落下标记后，
+# 名单过滤生效，不在名单内的设备被拒收并计入 whitelist_drop。
+# ---------------------------------------------------------------------------
+def whitelist_filter_marker_path():
+    state_dir = os.environ.get("PROTOCOL_TEST_STATE_DIR", ".protocol-test")
+    return os.path.join(state_dir, "whitelist_filter.enabled")
+
+
+def whitelist_filter_enabled():
+    return os.path.exists(whitelist_filter_marker_path())
+
+
 class JsonCloudSender:
     """将 8888 收到的 JSON 发送至统一云端 11500。"""
 
@@ -1534,6 +1548,7 @@ def handle_json_client(
     whitelist_drop_total = 0
     access_gate_drop_total = 0
     last_gate_open = None
+    last_filter_on = None
     last_received_total = 0
     last_report = time.time()
 
@@ -1546,6 +1561,7 @@ def handle_json_client(
         nonlocal whitelist_drop_total
         nonlocal access_gate_drop_total
         nonlocal last_gate_open
+        nonlocal last_filter_on
 
         received_total += 1
         payload_text = json.dumps(
@@ -1597,8 +1613,16 @@ def handle_json_client(
             access_gate_drop_total += 1
             return
 
-        # 启用白名单过滤时，未获准的设备不转发，也不进入宝通短波链路。
-        if whitelist_filter and whitelist is not None:
+        # 可信接入过滤（大纲 2.2.4）：trust_access_add_whitelist 执行前不过滤
+        # 名单（全部放行）；标记落下后才按服务器名单拒收名单外设备。
+        filter_on = whitelist_filter and whitelist is not None and whitelist_filter_enabled()
+        if filter_on != last_filter_on:
+            if filter_on:
+                log("[TRUST-ACCESS] 白名单过滤已生效，名单外设备将被拒收")
+            elif whitelist_filter and whitelist is not None:
+                log("[TRUST-ACCESS] 白名单过滤未启用，暂不按名单过滤（全部放行）")
+            last_filter_on = filter_on
+        if filter_on:
             if not whitelist_allow(payload, whitelist, gateway_id):
                 whitelist_drop_total += 1
                 return
@@ -4307,6 +4331,13 @@ def main():
             "enabled" if multi_source_enabled()
             else "gated until ./multi_source_access.sh",
             multi_source_marker_path(),
+        )
+    )
+    log(
+        "[MAIN] whitelist filter: {} | marker={}".format(
+            "enabled" if whitelist_filter_enabled()
+            else "off until ./trust_access_add_whitelist.sh",
+            whitelist_filter_marker_path(),
         )
     )
     log("[MAIN] gateway id: {}".format(args.gateway))

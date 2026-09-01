@@ -5,8 +5,6 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 SOURCE_DURATION="${SOURCE_DURATION:-3}"
-# 大纲 2.2.4：传感器终端扮演非法设备（不在服务器白名单内）。
-export PROTOCOL_TEST_DEVICE_SENSOR="${PROTOCOL_TEST_DEVICE_SENSOR:-ILLEGAL-SENSOR}"
 
 section() {
   printf '\n%s\n' '=============================================================================='
@@ -27,7 +25,10 @@ section '2.2.4 TEST STEPS'
 ./multi_source_access.sh
 ./query_service_log.sh
 ./query_cloud_log.sh --device-type video/sensor/env
-./trust_access_add_whitelist.sh "${PROTOCOL_TEST_DEVICE_VIDEO:-182D48D7}" "${PROTOCOL_TEST_DEVICE_SENSOR:-ILLEGAL-SENSOR}"
+# 起步无名单过滤（全部放行）；本指令拉取并打印服务器白名单后过滤生效，
+# 传感器终端随发送自动换无关 ID，成为名单外非法设备被拒收。
+./trust_access_add_whitelist.sh "${PROTOCOL_TEST_DEVICE_VIDEO:-182D48D7}" "${PROTOCOL_TEST_DEVICE_SENSOR:-3C15DB07}" ILLEGAL-SENSOR
+./start_sensor_data.sh --duration "$SOURCE_DURATION"
 ./start_test.sh --device-id UNKNOWN-001
 ./trust_access_calculate.sh
 ./policy-route.sh --start

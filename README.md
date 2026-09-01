@@ -14,14 +14,15 @@
 ./run_edge_terminal.sh              # 边缘网关终端（自动拉起本地中转）
 ./run_cloud_terminal.sh             # 云端管理节点终端
 ./run_device_terminal.sh video      # 视频流终端      182D48D7  有线（含真实媒体口 7777）
-./run_device_terminal.sh sensor     # 传感器终端      非法设备（不在服务器白名单）  Wi-Fi
+./run_device_terminal.sh sensor     # 传感器终端      3C15DB07  Wi-Fi（名单过滤生效后自动换无关 ID）
 ./run_device_terminal.sh env        # 环境监测模块终端 990E261B  Wi-Fi/蓝牙/有线（轮换）
 ```
 
 大纲 2.2.4 的三个端侧终端可同时运行（状态写入与 msg_id 分配均有跨进程锁）。
 三个 start 命令默认持续发送（Ctrl-C 停止）；`./multi_source_access.sh` 执行前
-边缘网关不受理端侧数据（接入门），执行后开始受理，白名单外的传感器终端
-（非法设备）仍被拒收并记阻断日志。
+边缘网关不受理端侧数据（接入门）。可信接入：起步不过滤名单（全部放行），
+`./trust_access_add_whitelist.sh` 拉取并打印服务器白名单后过滤生效，传感器
+终端自动换无关设备 ID 被拒收并记阻断日志。
 
 ## 大纲 2.2.3 运行流程（mock 演示版）
 

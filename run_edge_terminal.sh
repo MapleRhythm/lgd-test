@@ -87,9 +87,11 @@ mkdir -p "$(dirname "$FORWARD_MARKER")"
 rm -f "$FORWARD_MARKER"
 
 # 大纲 2.2.4 多源接入门同样随边缘终端启动复位：./multi_source_access.sh
-# 执行前不受理端侧数据。真网关标记与本地模型状态一起关，两层保持一致。
+# 执行前不受理端侧数据；可信接入过滤也复位为未启用（trust_access_
+# add_whitelist 执行后生效）。真网关标记与本地模型状态一起关，两层一致。
 GATE_MARKER="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/multi_source_access.enabled"
-rm -f "$GATE_MARKER"
+FILTER_MARKER="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/whitelist_filter.enabled"
+rm -f "$GATE_MARKER" "$FILTER_MARKER"
 STATE_FILE="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/state.json"
 if [[ -f "$STATE_FILE" ]]; then
   python3 - "$STATE_FILE" <<'PY'
@@ -97,8 +99,12 @@ import json, sys
 path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as handle:
     state = json.load(handle)
-if state.get("multi_source_enabled"):
-    state["multi_source_enabled"] = False
+changed = False
+for key in ("multi_source_enabled", "whitelist_filter_enabled"):
+    if state.get(key):
+        state[key] = False
+        changed = True
+if changed:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=False, indent=2)
 PY

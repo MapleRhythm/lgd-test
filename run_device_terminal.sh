@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # 大纲 2.2.4 的多源接入需要三个端侧终端（同一目录、同一状态区，各自独立
 # TCP 长连接到边缘网关，状态写入与 msg_id 分配均有跨进程锁）：
 #   ./run_device_terminal.sh video    视频流终端        182D48D7  有线
-#   ./run_device_terminal.sh sensor   传感器终端        非法设备（不在服务器白名单）
+#   ./run_device_terminal.sh sensor   传感器终端        3C15DB07  Wi-Fi（名单过滤生效后自动换无关 ID）
 #   ./run_device_terminal.sh env      环境监测模块终端  990E261B  Wi-Fi/蓝牙/有线（轮换）
 # 不带参数 = 原有通用端侧终端。
 
@@ -64,12 +64,12 @@ case "$ROLE" in
     PS1='video> ' bash --noprofile --norc -i
     ;;
   sensor)
-    # 大纲 2.2.4 可信接入演示：传感器终端扮演非法设备，device_id 不在
-    # 服务器白名单内，边缘网关按白名单拒收并记阻断日志。
-    export PROTOCOL_TEST_DEVICE_SENSOR="${PROTOCOL_TEST_DEVICE_SENSOR:-ILLEGAL-SENSOR}"
+    # 大纲 2.2.4 可信接入演示：起步不过滤名单，本终端用正常白名单身份；
+    # ./trust_access_add_whitelist.sh 执行（过滤生效）后，发送端逐报文自动
+    # 切换为无关设备 ID（ILLEGAL-SENSOR），被边缘网关拒收并记阻断日志。
     printf '\033[1;36m  %s\033[0m\n' '传感器终端 · SENSOR DATA TERMINAL'
     printf '\033[36m  %s\033[0m\n' "$BAR"
-    printf '  device id : %s（不在服务器白名单 · 非法设备）\n' "$PROTOCOL_TEST_DEVICE_SENSOR"
+    printf '  device id : %s（白名单借用；trust_access_add_whitelist 后自动换无关 ID）\n' "${PROTOCOL_TEST_DEVICE_SENSOR:-3C15DB07}"
     printf '  gateway   : %s:%s\n' "$PROTOCOL_TEST_GATEWAY_HOST" "$PROTOCOL_TEST_GATEWAY_PORT"
     printf '  link      : Wi-Fi\n'
     printf '\n'
