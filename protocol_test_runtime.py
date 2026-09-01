@@ -557,19 +557,37 @@ def send_live_json(payload: dict) -> bool:
     return False
 
 
+# The media port behaves the same way: a real camera keeps one TCP connection
+# and streams VID0 frames over it instead of reconnecting per frame.
+_LIVE_MEDIA_CONN = {"sock": None, "lock": threading.Lock()}
+
+
 def send_live_media(payload: dict) -> bool:
     host = os.getenv("PROTOCOL_TEST_MEDIA_HOST", "127.0.0.1")
     port = int(os.getenv("PROTOCOL_TEST_MEDIA_PORT", "7777"))
     metadata = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     body = struct.pack("!I", len(metadata)) + metadata + (b"P" * payload_size_for(payload["biz_type"]))
     packet = struct.pack("!4sQ", b"VID0", len(body)) + body
-    try:
-        with socket.create_connection((host, port), timeout=2.0) as client:
-            client.sendall(packet)
-        return True
-    except OSError as exc:
-        append_record("control.jsonl", {"timestamp": now_iso(), "action": "live_media_failed", "error": str(exc)})
-        return False
+    with _LIVE_MEDIA_CONN["lock"]:
+        for attempt in (0, 1):
+            sock = _LIVE_MEDIA_CONN["sock"]
+            try:
+                if sock is None:
+                    sock = socket.create_connection((host, port), timeout=2.0)
+                    _LIVE_MEDIA_CONN["sock"] = sock
+                sock.sendall(packet)
+                return True
+            except OSError as exc:
+                _LIVE_MEDIA_CONN["sock"] = None
+                if sock is not None:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                if attempt:
+                    append_record("control.jsonl", {"timestamp": now_iso(), "action": "live_media_failed", "error": str(exc)})
+                    return False
+    return False
 
 
 # Live core-gateway query layer.  The real cloud node exposes, per uplink
