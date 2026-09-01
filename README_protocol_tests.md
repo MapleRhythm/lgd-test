@@ -170,6 +170,10 @@ shortwave_next` 明细，`start_uplink_transfer` 表格下方提示轮换，真�
 加罩后在边缘终端执行即可看到 5G BELOW THRESHOLD 与降级路由
 （`--low/--normal` 仍可手动置位本地模型，不再下发任何服务器指令）。
 远端生产中转（47.99.47.169）只读，link_block 一律不下发，仅模型生效。
+5G/链路切换状态以颜色区分：**恢复/正常绿、中断/降级红**——边缘终端的
+[LINK-STATUS] 行、云端终端的 [HEARTBEAT-UP] status 行整行着色；查询表
+的 Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）
+同色（NO_COLOR 或管道输出时自动关闭）。
 
 ```bash
 ./cloud-mgr.sh --start

@@ -155,6 +155,10 @@ def warn(text: str) -> None:
     print("  " + colour("WARN ", "yellow") + text)
 
 
+def warn_red(text: str) -> None:
+    print("  " + colour("WARN ", "red") + colour(text, "red"))
+
+
 def error(text: str) -> None:
     print("  " + colour("FAIL ", "red") + text)
 
@@ -173,6 +177,10 @@ STATUS_COLOURS = {
     "UP": "green", "正常": "green", "ACCEPT": "green",
     "DOWN": "red", "中断": "red", "REJECT": "red",
     "DEGRADED": "yellow", "劣化": "yellow",
+    # 5G 恢复/中断与链路切换字：恢复/正常绿，中断/降级红。
+    "AVAILABLE": "green", "5G AVAILABLE": "green", "normal": "green",
+    "BELOW THRESHOLD": "red", "5G BELOW THRESHOLD": "red", "degraded": "red",
+    "5g_below_threshold": "red", "no_available_route": "red",
 }
 
 
@@ -1746,7 +1754,7 @@ def cmd_link_monitor(args) -> int:
     if mode == "normal":
         ok("5G signal is above threshold")
     else:
-        warn("5G signal is below threshold; degraded routing is active")
+        warn_red("5G signal is below threshold; degraded routing is active")
     return 0
 
 
@@ -1787,7 +1795,7 @@ def cmd_link_block(args) -> int:
     if mode == "normal":
         ok("5G link recovered")
     else:
-        warn("5G link blocked (shield on); core heartbeat and edge link disconnected")
+        warn_red("5G link blocked (shield on); core heartbeat and edge link disconnected")
     return 0
 
 
