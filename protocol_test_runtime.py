@@ -801,7 +801,10 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
         # 端侧设备照常上线发送（真实打到边缘网关）；是否受理由边缘决定
         # ——接入门/白名单的裁决结果只影响本地模型记录。
         send_live_json(payload)
-    if not state.get("multi_source_enabled"):
+    # 接入门/转发门/过滤门一律以标记文件为准（真网关逐报文也只看标记）：
+    # state.json 可能被并发的长驻发送进程按旧字典整体写回、冲掉后加的键，
+    # 标记文件不受影响，三层（真网关/模型/传感器换 ID）始终同一事实源。
+    if not (STATE_DIR / "multi_source_access.enabled").exists():
         # 大纲 2.2.4 多源接入门：multi_source_access 执行前边缘暂不受理端侧
         # 数据（对应真网关的 gate_drop），报文只留 gate_closed 记录。
         append_record("edge.jsonl", {
@@ -813,7 +816,7 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
         return {"accepted": False, "forwarded": [], "reason": "multi_source_access_not_started"}
     # 大纲 2.2.4 可信接入：trust_access_add_whitelist 执行前不做名单过滤
     #（全部放行）；执行后按服务器名单裁决，与真网关标记一致。
-    filter_on = bool(state.get("whitelist_filter_enabled"))
+    filter_on = (STATE_DIR / "whitelist_filter.enabled").exists()
     allowed = effective_whitelist(state.get("whitelist", [])) if filter_on else []
     # An empty list means "allow everything" -- same semantics as the edge
     # gateway's WhitelistManager, so local verdicts track the real edge.
@@ -870,7 +873,7 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
     append_record("route.jsonl", route_record)
     append_record("edge.jsonl", {**route_record, "stage": "route_decision"})
 
-    if not state.get("forwarder_enabled"):
+    if not (STATE_DIR / "edge_forward.enabled").exists():
         append_record("edge.jsonl", {
             "timestamp": now_iso(), "stage": "forwarder_stopped", "device_id": device_id,
             "biz_type": biz_type, "msg_id": msg_id, "link_id": "", "selected": actual,
