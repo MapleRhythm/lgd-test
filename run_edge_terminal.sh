@@ -16,6 +16,18 @@ export PYTHONUNBUFFERED=1
 #（EDGE_REPORT_INTERVAL 可覆盖；连接断开时的汇总行不受影响）。
 export EDGE_REPORT_INTERVAL="${EDGE_REPORT_INTERVAL:-30}"
 
+# 5G 链路切换显示色：恢复/正常=绿、中断/降级=红（大纲 2.2.5）。着色只在
+# 显示层做（本脚本的管道 sed），original/ 里的网关源码不动。控制台不是
+# 终端或设置 NO_COLOR 时关闭，与模型层 colour() 同规则。
+COLOUR_RED=$'\033[31m'
+COLOUR_GREEN=$'\033[32m'
+COLOUR_RESET=$'\033[0m'
+if [[ ! -t 1 ]] || [[ -n "${NO_COLOR:-}" ]]; then
+  COLOUR_RED=""
+  COLOUR_GREEN=""
+  COLOUR_RESET=""
+fi
+
 EDGE_PID=""
 RELAY_PID=""
 
@@ -141,7 +153,8 @@ printf '  OK   ledger files cleared (fresh demo session)\n'
   --whitelist-filter \
   --link-monitor-interval "${EDGE_LINK_MONITOR_INTERVAL:-60}" \
   --compact-log > >(grep --line-buffered -vE '\[WHITELIST\]|\[EDGE-HEARTBEAT\]|\[JSON\]\[SHORTWAVE\]' \
-    | sed -u 's/gateway_1/scene_1/g; s/gateway_2/scene_2/g; s/gateway_4/scene_3/g; s/gateway_5/scene_3/g; s/Gateway1/scene_1/g; s/Gateway2/scene_2/g; s/Gateway4/scene_3/g; s/Gateway5/scene_3/g') &
+    | sed -u 's/gateway_1/scene_1/g; s/gateway_2/scene_2/g; s/gateway_4/scene_3/g; s/gateway_5/scene_3/g; s/Gateway1/scene_1/g; s/Gateway2/scene_2/g; s/Gateway4/scene_3/g; s/Gateway5/scene_3/g' \
+    | sed -u -E "/\[LINK-STATUS\].*connected=False/s/.*/${COLOUR_RED}&${COLOUR_RESET}/; /\[LINK-STATUS\].*connected=True/s/.*/${COLOUR_GREEN}&${COLOUR_RESET}/") &
 EDGE_PID=$!
 
 sleep "${EDGE_STARTUP_WAIT:-3}"

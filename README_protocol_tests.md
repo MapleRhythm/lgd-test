@@ -86,20 +86,115 @@ the strict two-terminal operation path.
 
 ## 2.2.3 construction test
 
+### 生产（真机）前序操作：静态 IP 与服务拉起
+
+网络与地址规划（网段为现网实际；`192.168.4.x` 等具体主机地址为示例，
+以现场规划为准）：
+
+| 节点 | 网卡/网段 | 地址（示例） | 用途 |
+|------|-----------|--------------|------|
+| 云服务器 | 公网 | 47.99.47.169 | 中转 server_v8 + 核心网关 gateway_v1，生产常驻 |
+| 边缘网关·接入口 | 有线网卡 | 192.168.4.1/24 | 监听 7777（媒体）/8888（JSON），端侧全部指向它 |
+| 边缘网关·宝通口 | 宝通网卡 | 192.168.2.100/24 | 到宝通工控机 192.168.2.1:9100 |
+| 边缘网关·上行 | 5G/公网 | 默认路由 | 到 47.99.47.169:11500/11417/11511/11510 |
+| 视频流终端 | 有线 | 192.168.4.10/24 | 182D48D7，媒体 VID0→边缘:7777 |
+| 传感器终端 | 有线 | 192.168.4.11/24 | 3C15DB07，JSON→边缘:8888 |
+| 环境监测终端 | 有线 | 192.168.4.12/24 | 990E261B，JSON→边缘:8888（2.2.3 端侧身份） |
+| 宝通工控机 | 192.168.2.0/24 | 192.168.2.1 | 短波 9100；输出侧另有 192.168.0.233/24 |
+
+生产代码里的地址都在配置默认值与启动参数里，`original/` 源码不用改：
+
+- `original/edge_config.py`（边缘）：`DEFAULT_CLOUD_HOST=47.99.47.169`（11500）、
+  `DEFAULT_BAOTONG_HOST=192.168.2.1`（9100）、监听 `0.0.0.0:7777/8888`、
+  卫星串口 `/dev/ttyUSB0@115200`；
+- `original/config.py`（核心）：`DEFAULT_SERVER_HOST=127.0.0.1`（与同机中转
+  互联）、`DEFAULT_B_HOST=47.99.47.169:11410`（卫星入库）、宝通监听
+  192.168.2.1:9100、输出侧 192.168.0.233/24、前端 HTTP 10000-10017；
+- 覆盖走启动参数：`edge_node.sh` 的 `--cloud-host/--baotong-host/
+  --satellite-port` 等（`gateway_merged.py` build_parser 全表）、核心网关的
+  `--server-host/--b-host`。
+
+静态 IP 在系统层配置（示例 nmcli，Ubuntu 用 netplan；两张业务网卡不配
+网关，上行走原有默认路由）：
+
 ```bash
-cd final
-./init_link_connect.sh --reset
-./check_link_connect.sh
-./ping_link_test.sh
-./start_test.sh
-./keep_transfer.sh --duration 600
-./multi_link_bandwidth.sh
-./edge_forward.sh --start
-./query_link_data.sh
+nmcli con mod <接入网卡> ipv4.method manual ipv4.addresses 192.168.4.1/24
+nmcli con mod <宝通网卡> ipv4.method manual ipv4.addresses 192.168.2.100/24
+nmcli con up <接入网卡>; nmcli con up <宝通网卡>
 ```
 
-The policy route and message encapsulation programs are started as
-preconditions by `run_2_2_3.sh`; they are not additional 2.2.3 test steps.
+端侧三台同理各配一个 `192.168.4.x/24`，业务上指向边缘的 `192.168.4.x`。
+
+服务拉起顺序（前序操作）：
+
+0. 云端 47.99.47.169：中转与核心网关**生产常驻**——只确认监听，不重启、
+   不下发 `/stop1` 等控制指令：
+   `ss -lnt | grep -E ':(11500|11502|11410|11416|11417|11420)'`
+1. 边缘机直启边缘网关（真机接了 400-GM12 卫星模组就不要
+   `--disable-satellite`；`PROTOCOL_TEST_STATE_DIR` 必须与大纲脚本一致——
+   接入门/转发门/过滤门的标记文件是网关按这个目录读的；演示边缘默认
+   身份 `gateway_1`，在中转属组1）：
+```bash
+cd /path/to/final
+export PROTOCOL_TEST_STATE_DIR="$PWD/.protocol-test"
+unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+./edge_node.sh --cloud-host 47.99.47.169 --baotong-host 192.168.2.1 \
+  --whitelist-filter --whitelist-interval 30 --compact-log
+```
+   （`run_edge_terminal.sh` 是 WSL 演示包装：会话复位、显示层 scene 改名
+   与着色、固定 `--disable-satellite`、默认本地起中转——生产直启用上面
+   的 `edge_node.sh`。）
+2. 端侧机起环境监测终端（2.2.3 只需这一台端侧）：
+```bash
+DEVICE_GATEWAY_HOST=192.168.4.1 PROTOCOL_TEST_RELAY_HOST=47.99.47.169 \
+  ./run_device_terminal.sh env
+```
+
+**跨机注意**：门命令（`init_link_connect`/`multi_source_access`/
+`edge_forward`/`trust_access_*`）的标记文件写在执行机本地，必须在
+**边缘机**上执行才作用到真网关；端侧机只跑发送类命令。查询云端核心
+HTTP 时带 `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169`。
+
+### 2.2.3 真机步骤（逐条）
+
+边缘终端先落前置（`run_2_2_3.sh` 的 precondition 顺序）：
+
+```bash
+./init_link_connect.sh --reset   # 会话复位：清台账并关三扇门
+./policy-route.sh --start
+./msg-encap.sh --start
+```
+
+| 步骤 | 终端 | 命令 | 预期 |
+|------|------|------|------|
+| 1 初始化接入链路 | 边缘 | `./init_link_connect.sh` | 落 `multi_source_access.enabled`，边缘开始受理端侧数据（`--reset` 是关门复位，只在前置用） |
+| 2 检查链路连接 | 端侧 env | `./check_link_connect.sh` | 三条接入链路状态表 |
+| 3 链路 ping 测试 | 端侧 env | `./ping_link_test.sh --real` | 接入链路 ICMP 实测边缘 192.168.4.x；回传链路 TCP 实测 11500/19100/11410 |
+| 4 起始测试 | 端侧 env | `./start_test.sh` | 默认 990E261B/env 身份发出首包 |
+| 5 持续传输 | 端侧 env | `./keep_transfer.sh --duration 600` | 边缘受理、暂不上云（转发门未开，属预期） |
+| 5 多链路并发带宽 | 端侧 env | `./multi_link_bandwidth.sh --duration 5` | 三条接入链路并发吞吐表 |
+| 6 打开边缘转发 | 边缘 | `./edge_forward.sh --start` | 落 `edge_forward.enabled`，边缘建立到云端转发 |
+| 收尾 打通端到端 | 边缘 | `./start_test.sh --device-id 990E261B --biz-type env` | 转发开启后补发一包，本机台账记 sent |
+| 收尾 链路数据查询 | 边缘 | `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169 ./query_link_data.sh` | live 核对：云端最新 msg_id 与最后发送一致 |
+
+单终端回归 `./run_2_2_3.sh` 即同一顺序的本地版。
+
+### WSL2 本地演示
+
+```bash
+cd final
+./init_link_connect.sh --reset    # 前置：会话复位（关三扇门）
+./policy-route.sh --start         # 前置：策略路由
+./msg-encap.sh --start            # 前置：报文封装
+./init_link_connect.sh            # 步骤1：初始化接入链路（开始受理端侧数据）
+./check_link_connect.sh           # 步骤2：检查链路连接
+./ping_link_test.sh               # 步骤3：链路 ping 测试
+./start_test.sh                   # 步骤4：起始测试
+./keep_transfer.sh --duration 600 # 步骤5：持续传输
+./multi_link_bandwidth.sh         # 步骤5：多链路并发带宽
+./edge_forward.sh --start         # 步骤6：打开边缘转发
+./query_link_data.sh              # 收尾：链路数据查询
+```
 
 Use a short duration while checking the workflow, for example
 `./keep_transfer.sh --duration 10 --interval 0.5`.
@@ -170,10 +265,13 @@ shortwave_next` 明细，`start_uplink_transfer` 表格下方提示轮换，真�
 加罩后在边缘终端执行即可看到 5G BELOW THRESHOLD 与降级路由
 （`--low/--normal` 仍可手动置位本地模型，不再下发任何服务器指令）。
 远端生产中转（47.99.47.169）只读，link_block 一律不下发，仅模型生效。
-5G/链路切换状态以颜色区分：**恢复/正常绿、中断/降级红**——边缘终端的
-[LINK-STATUS] 行、云端终端的 [HEARTBEAT-UP] status 行整行着色；查询表
-的 Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）
-同色（NO_COLOR 或管道输出时自动关闭）。
+5G/链路切换状态以颜色区分：**恢复/正常绿、中断/降级红**——查询表的
+Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）由
+模型层着色；边缘终端的 [LINK-STATUS] 行由 run_edge_terminal.sh 的显示
+管道整行着色；云端终端周期心跳照旧静默，仅在状态翻转时合成一行
+[HEARTBEAT] 中断（红）/恢复（绿）提示（cloud_node.py 显示层）。全部
+着色都在显示层/模型层完成，**original/ 目录内容保持原样不动**
+（NO_COLOR 或管道输出时自动关闭）。
 
 ```bash
 ./cloud-mgr.sh --start

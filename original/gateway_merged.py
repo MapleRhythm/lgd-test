@@ -130,20 +130,14 @@ def bj_time_str():
     return datetime.now(BJ_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
-def log(message, level="INFO", colour=None):
+def log(message, level="INFO"):
     thread_name = threading.current_thread().name
-    line = "[{}][{}][{}] {}".format(
-        bj_time_str(), level, thread_name, message
+    print(
+        "[{}][{}][{}] {}".format(
+            bj_time_str(), level, thread_name, message
+        ),
+        flush=True,
     )
-    if colour:
-        # 5G 恢复/中断与链路切换整行着色：恢复绿、中断红
-        # （复用监测表调色板，NO_COLOR 时自动关闭）。
-        line = (
-            _MONITOR_COLOURS.get(colour, "")
-            + line
-            + _MONITOR_COLOURS["reset"]
-        )
-    print(line, flush=True)
 
 
 def detail_log(message):
@@ -970,8 +964,7 @@ class LinkStatusMonitor(threading.Thread):
                     self.gateway_name,
                     bool(connected),
                     preview_text(payload),
-                ),
-                colour="green" if connected else "red",
+                )
             )
 
     def is_connected(self):

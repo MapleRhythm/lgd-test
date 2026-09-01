@@ -9,6 +9,7 @@ not appear in a test-terminal recording.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import types
@@ -18,12 +19,46 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 _IP_PORT = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}\b")
 _PORT = re.compile(r"(?<!\d)(?:10\d{3}|11\d{3}|7\d{3}|8\d{3})(?!\d)")
+# Heartbeat status line from the captured gateway source: the display layer
+# only watches it for state changes (link up/down colour, outline 2.2.5).
+_HEARTBEAT_STATUS = re.compile(r"\[HEARTBEAT-UP\] gateway(\d+) heartbeat status=(\d+)")
 
 
 class RedactedStdout:
     def __init__(self, stream):
         self.stream = stream
         self._suppress_next_newline = False
+        self._last_status = None
+
+    def _colour(self, code, text):
+        # Same rule as the model layer: plain when piped or NO_COLOR is set.
+        if os.environ.get("NO_COLOR") or not self.stream.isatty():
+            return text
+        return "\033[{}m{}\033[0m".format(code, text)
+
+    def _heartbeat_notice(self, text):
+        """Replace suppressed heartbeat chatter with a coloured state change.
+
+        Periodic same-status pings stay invisible.  When the status flips the
+        terminal gets exactly one line: red for link down (edge offline),
+        green for recovery -- 5G 链路切换显示, display layer only.
+        """
+        match = _HEARTBEAT_STATUS.search(text)
+        if not match:
+            return
+        gateway, status = match.group(1), match.group(2)
+        if status == self._last_status:
+            return
+        first_observation = self._last_status is None
+        self._last_status = status
+        if first_observation:
+            return
+        if status == "0":
+            line = "[HEARTBEAT] gateway{} 心跳中断：边缘离线（status=0）".format(gateway)
+            self.stream.write(self._colour(31, line) + "\n")
+        else:
+            line = "[HEARTBEAT] gateway{} 心跳恢复：边缘在线（status={}）".format(gateway, status)
+            self.stream.write(self._colour(32, line) + "\n")
 
     def write(self, text):
         if self._suppress_next_newline and text in {"\n", "\r\n"}:
@@ -32,8 +67,10 @@ class RedactedStdout:
         self._suppress_next_newline = False
         # Core-gateway heartbeat chatter (periodic status pings plus rare
         # connect/reconnect transitions) is transport bookkeeping, not demo
-        # output: drop it from the terminal entirely.
+        # output: drop it from the terminal, surfacing only the coloured
+        # up/down transitions above.
         if "[HEARTBEAT-UP]" in text:
+            self._heartbeat_notice(text)
             self._suppress_next_newline = True
             return len(text)
         text = _IP_PORT.sub("[REDACTED ENDPOINT]", text)

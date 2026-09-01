@@ -88,20 +88,8 @@ def bj_time_str():
     return datetime.now(BJ_TZ).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
-_NO_COLOUR = bool(os.environ.get("NO_COLOR"))
-_LOG_COLOURS = {
-    "green": "" if _NO_COLOUR else "\033[32m",
-    "red": "" if _NO_COLOUR else "\033[31m",
-    "reset": "" if _NO_COLOUR else "\033[0m",
-}
-
-
-def log(msg, colour=None):
-    line = "[{}] {}".format(bj_time_str(), msg)
-    if colour:
-        # 5G/链路切换状态着色：恢复绿、中断红（NO_COLOR 关闭）。
-        line = _LOG_COLOURS.get(colour, "") + line + _LOG_COLOURS["reset"]
-    print(line, flush=True)
+def log(msg):
+    print("[{}] {}".format(bj_time_str(), msg), flush=True)
 
 
 def format_snr_for_frontend(value):
@@ -2555,12 +2543,11 @@ def heartbeat_pull_loop(server_host, server_port, heartbeat_status):
                     log('[HEARTBEAT-UP][WARN] invalid gateway in payload: {}'.format(text))
                     continue
                 if heartbeat_status.mark(gateway_id, payload):
-                    online = heartbeat_status.is_online(gateway_id)
                     log('[HEARTBEAT-UP] gateway{} heartbeat status={} industrial_pc_connected={}'.format(
                         gateway_id,
-                        1 if online else 0,
+                        1 if heartbeat_status.is_online(gateway_id) else 0,
                         heartbeat_status.snapshot(gateway_id).get('industrial_pc_connected'),
-                    ), colour="green" if online else "red")
+                    ))
         except (ConnectionError, OSError, ValueError) as exc:
             log('[HEARTBEAT-UP][WARN] disconnected/error: {}'.format(exc))
         finally:
