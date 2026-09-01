@@ -108,21 +108,24 @@ Use a short duration while checking the workflow, for example
 
 ```bash
 ./run_device_terminal.sh video    # 视频流终端 182D48D7（有线，含真实媒体口 7777）
-./run_device_terminal.sh sensor   # 传感器终端 3C15DB07（Wi-Fi）
-./run_device_terminal.sh env      # 环境监测模块终端 990E261B（Wi-Fi/蓝牙轮换）
+./run_device_terminal.sh sensor   # 传感器终端 ILLEGAL-SENSOR（Wi-Fi，不在服务器白名单的非法设备）
+./run_device_terminal.sh env      # 环境监测模块终端 990E261B（Wi-Fi/蓝牙/有线轮换）
 ```
 
-三个终端里分别执行各自的 start 命令（可同时运行），随后在边缘网关终端与
-云端终端执行查询：
+三个 start 命令默认**持续发送**（每秒一条，`--count`/`--duration` 可覆盖，
+Ctrl-C 停止）。`./multi_source_access.sh` 执行前，边缘网关（真网关与本地模型
+一致）只累计接收统计，不受理端侧数据：JSON 口报文计 `gate_drop`，媒体口
+VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理，白名单外的传感器
+终端仍被拒收（`whitelist_drop`）。
 
 ```bash
-./start_video_stream.sh           # 视频流终端
-./start_sensor_data.sh            # 传感器终端
-./start_env_data.sh               # 环境监测模块终端
-./multi_source_access.sh          # 边缘网关终端
+./start_video_stream.sh           # 视频流终端（持续发送，Ctrl-C 停止）
+./start_sensor_data.sh            # 传感器终端（持续发送，非法设备）
+./start_env_data.sh               # 环境监测模块终端（持续发送）
+./multi_source_access.sh          # 边缘网关终端：此后边缘才开始受理端侧数据
 ./query_service_log.sh            # 边缘网关终端
 ./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（末尾输出云端与边缘记录一致性核对）
-./trust_access_add_whitelist.sh 182D48D7 3C15DB07   # 从服务器拉取白名单并打印，参数设备做在册核对
+./trust_access_add_whitelist.sh 182D48D7 990E261B ILLEGAL-SENSOR   # 从服务器拉取白名单并打印，参数设备做在册核对
 ./start_test.sh --device-id UNKNOWN-001
 ./trust_access_calculate.sh
 ./edge-query.sh --route-log --biz-type video/sensor/critical-sensor/fire
@@ -130,6 +133,9 @@ Use a short duration while checking the workflow, for example
 ./cloud-query.sh --msg-id-check
 ./cloud-query.sh --link-id-check
 ```
+
+`./run_2_2_4.sh` 单终端回归版按同样语义执行：前置 `init_link_connect --reset`
+后接入门为关闭状态，三路 start 以 `SOURCE_DURATION`（默认 3 秒）限时长发送。
 
 ## 2.2.5 function test
 

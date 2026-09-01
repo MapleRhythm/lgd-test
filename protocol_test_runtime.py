@@ -95,7 +95,9 @@ DEMO_DEVICE_IDS = {
     "control": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL", "EA1D2801"),
     "control-alarm": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL_ALARM", "EA1D2801"),
 }
-DEFAULT_WHITELIST = sorted(set(DEMO_DEVICE_IDS.values()))
+# 服务器白名单内的借用设备（与远端中转分发的名单一致）。固定为这四个 ID：
+# 传感器终端的非法设备身份只用于发送，绝不能混进本地白名单。
+DEFAULT_WHITELIST = ["182D48D7", "3C15DB07", "990E261B", "EA1D2801"]
 
 _REMOTE_WHITELIST_CACHE = {"at": 0.0, "devices": None}
 
@@ -232,6 +234,7 @@ def default_state() -> dict:
         "route_enabled": False,
         "forwarder_enabled": False,
         "encapsulation_enabled": False,
+        "multi_source_enabled": True,
         "cloud_manager_enabled": True,
         "channels": {
             "embb": {"label": "high-bandwidth", "weight": 1, "rate_mbps": 10.0},
@@ -773,6 +776,20 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
     device_id = str(payload.get("device_id", ""))
     biz_type = normalize_biz_type(payload.get("biz_type", payload.get("type", "sensor")))
     msg_id = str(payload.get("msg_id", ""))
+    if live_enabled():
+        # 端侧设备照常上线发送（真实打到边缘网关）；是否受理由边缘决定
+        # ——接入门/白名单的裁决结果只影响本地模型记录。
+        send_live_json(payload)
+    if not state.get("multi_source_enabled"):
+        # 大纲 2.2.4 多源接入门：multi_source_access 执行前边缘暂不受理端侧
+        # 数据（对应真网关的 gate_drop），报文只留 gate_closed 记录。
+        append_record("edge.jsonl", {
+            "timestamp": now_iso(), "stage": "gate_closed", "transport": transport,
+            "device_id": device_id, "biz_type": biz_type, "msg_id": msg_id,
+            "link_id": payload.get("link_id", ""),
+            "reason": "multi_source_access_not_started",
+        })
+        return {"accepted": False, "forwarded": [], "reason": "multi_source_access_not_started"}
     allowed = effective_whitelist(state.get("whitelist", []))
     # An empty list means "allow everything" -- same semantics as the edge
     # gateway's WhitelistManager, so local verdicts track the real edge.
@@ -801,8 +818,6 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
         # the same accounting as the edge's [JSON][QUEUE] bytes counter.
         "bytes": len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1,
     })
-    if live_enabled():
-        send_live_json(payload)
 
     if not state.get("encapsulation_enabled"):
         append_record("edge.jsonl", {
@@ -906,6 +921,8 @@ def cmd_init(args) -> int:
         (STATE_DIR / "edge_forward.enabled").unlink(missing_ok=True)
         # 实时接收缓存随流程复位，避免跨轮次混入旧报文。
         (STATE_DIR / "cloud_rx_live.jsonl").unlink(missing_ok=True)
+        # 多源接入门同样复位：2.2.4 起步时边缘暂不受理端侧数据。
+        (STATE_DIR / "multi_source_access.enabled").unlink(missing_ok=True)
     def update(state):
         for link_id in INGRESS:
             state["links"][link_id]["online"] = True
@@ -915,9 +932,18 @@ def cmd_init(args) -> int:
             state["route_enabled"] = False
             state["forwarder_enabled"] = False
             state["encapsulation_enabled"] = False
+            state["multi_source_enabled"] = False
             state["cloud_manager_enabled"] = True
+        else:
+            # 大纲 2.2.3 步骤1：初始化接入链路即开始受理端侧接入。
+            state["multi_source_enabled"] = True
         return state
     mutate_state(update, reset=args.reset)
+    if not args.reset:
+        # 同步真网关的多源接入门标记（与真网关共用状态目录）。
+        marker = STATE_DIR / "multi_source_access.enabled"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
     log_control("init_links", links=list(ALL_LINKS))
     title("2.2.3 LINK INITIALIZATION")
     info("run_id: {}".format(snapshot_state()["run_id"]))
@@ -1119,17 +1145,22 @@ def cmd_start_test(args) -> int:
 def run_loop(args, producer) -> int:
     started = time.monotonic()
     count = 0
-    while True:
-        if args.count is not None and count >= args.count:
-            break
-        if args.duration is not None and time.monotonic() - started >= args.duration:
-            break
-        producer(count)
-        count += 1
-        if count % max(1, args.report_every) == 0:
-            print("  progress: sent={} elapsed={:.1f}s".format(count, time.monotonic() - started))
-        if args.interval > 0:
-            time.sleep(args.interval)
+    try:
+        while True:
+            if args.count is not None and count >= args.count:
+                break
+            if args.duration is not None and time.monotonic() - started >= args.duration:
+                break
+            producer(count)
+            count += 1
+            if count % max(1, args.report_every) == 0:
+                print("  progress: sent={} elapsed={:.1f}s".format(count, time.monotonic() - started))
+            if args.interval > 0:
+                time.sleep(args.interval)
+    except KeyboardInterrupt:
+        # 持续发送模式（大纲 2.2.4 三个 start 命令）由 Ctrl-C 结束。
+        print()
+        info("interrupted by user, stopping sender")
     return count
 
 
@@ -1308,10 +1339,23 @@ def source_command(args, source_kind: str) -> int:
 
 def cmd_multi_source_access(args) -> int:
     title("MULTI-SOURCE ACCESS")
+    # 大纲 2.2.4：执行本命令后边缘网关才开始受理端侧设备数据；真网关按
+    # multi_source_access.enabled 标记开门（此前到达报文只累计 gate_drop）。
+    def open_gate(state):
+        state["multi_source_enabled"] = True
+    mutate_state(open_gate)
+    log_control("multi_source_access_start")
+    marker = STATE_DIR / "multi_source_access.enabled"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    ok("多源业务接入已启动，边缘网关开始受理端侧设备数据")
+    print()
     sent = read_records("sent.jsonl")
     edge = read_records("edge.jsonl")
-    known = {(item.get("msg_id"), item.get("stage")) for item in edge}
-    pending = [item for item in sent if (item.get("msg_id"), "access") not in known]
+    # 开门前到达的报文已留有 gate_closed/rejected 等边缘记录，不追溯改判，
+    # 只补送从未进过边缘处理的报文。
+    known = {item.get("msg_id") for item in edge}
+    pending = [item for item in sent if item.get("msg_id") not in known]
     for item in pending:
         process_payload(item, transport=item.get("transport", "TCP"))
     edge = read_records("edge.jsonl")
@@ -1774,7 +1818,8 @@ def build_parser():
 
     for command, source_kind in (("start-video", "video"), ("start-sensor", "sensor"), ("start-env", "env")):
         item = sub.add_parser(command)
-        add_common_loop_options(item, count=3, duration=None, interval=0.25)
+        # 大纲 2.2.4：三个端侧 start 命令默认持续发送（每秒一条），Ctrl-C 停止。
+        add_common_loop_options(item, count=None, duration=None, interval=1.0)
         item.set_defaults(function=lambda args, source_kind=source_kind: source_command(args, source_kind))
 
     item = sub.add_parser("multi-source-access")
