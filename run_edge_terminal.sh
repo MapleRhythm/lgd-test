@@ -86,6 +86,24 @@ FORWARD_MARKER="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/edge_forw
 mkdir -p "$(dirname "$FORWARD_MARKER")"
 rm -f "$FORWARD_MARKER"
 
+# 大纲 2.2.4 多源接入门同样随边缘终端启动复位：./multi_source_access.sh
+# 执行前不受理端侧数据。真网关标记与本地模型状态一起关，两层保持一致。
+GATE_MARKER="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/multi_source_access.enabled"
+rm -f "$GATE_MARKER"
+STATE_FILE="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/state.json"
+if [[ -f "$STATE_FILE" ]]; then
+  python3 - "$STATE_FILE" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    state = json.load(handle)
+if state.get("multi_source_enabled"):
+    state["multi_source_enabled"] = False
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, ensure_ascii=False, indent=2)
+PY
+fi
+
 ./edge_node.sh \
   --media-listen-host "${EDGE_MEDIA_HOST:-127.0.0.1}" \
   --media-listen-port "${EDGE_MEDIA_PORT:-7777}" \
