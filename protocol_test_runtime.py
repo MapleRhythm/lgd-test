@@ -181,6 +181,7 @@ STATUS_COLOURS = {
     "AVAILABLE": "green", "5G AVAILABLE": "green", "normal": "green",
     "BELOW THRESHOLD": "red", "5G BELOW THRESHOLD": "red", "degraded": "red",
     "5g_below_threshold": "red", "no_available_route": "red",
+    "policy_route_not_started": "red",
 }
 
 
@@ -908,11 +909,20 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
         })
         return {"accepted": True, "forwarded": [], "reason": "forwarder_stopped", "selected": actual}
     if not actual:
+        # 阻断行按真实原因记录：路由程序未启动 / 5G 低于阈值 / 无可用路由。
+        # reason（模式标签 normal/5g_below_threshold）放在阻断行上会误导
+        # （"正常却没送达"），只保留在 route_decision 与成功行。
+        if not state.get("route_enabled"):
+            block_reason = "policy_route_not_started"
+        elif degraded_mode(state):
+            block_reason = "5g_below_threshold"
+        else:
+            block_reason = "no_available_route"
         append_record("edge.jsonl", {
             "timestamp": now_iso(), "stage": "delivery_blocked", "device_id": device_id,
-            "biz_type": biz_type, "msg_id": msg_id, "link_id": "", "reason": reason,
+            "biz_type": biz_type, "msg_id": msg_id, "link_id": "", "reason": block_reason,
         })
-        return {"accepted": True, "forwarded": [], "reason": "no_available_route", "selected": []}
+        return {"accepted": True, "forwarded": [], "reason": block_reason, "selected": []}
 
     forwarded = []
     for link_id in actual:
