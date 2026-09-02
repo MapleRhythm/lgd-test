@@ -65,7 +65,7 @@ changes node ownership:
 ```text
 2.2.3 edge:   init_link_connect, edge_forward
       device: check_link_connect, ping_link_test, start_test,
-               keep_transfer, multi_link_bandwidth   （环境监测终端 env）
+               keep_transfer, multi_link_bandwidth   （端侧终端，默认 env 身份）
       cloud:  query_link_data
 
 2.2.4 device: start_video_stream（含每10s火情上报）, start_sensor_data,
@@ -123,10 +123,10 @@ nmcli con mod <宝通网卡> ipv4.method manual ipv4.addresses 192.168.2.100/24
 nmcli con up <接入网卡>; nmcli con up <宝通网卡>
 ```
 
-端侧设备板同理只配**一个** `192.168.4.10/24`（不配网关）；三个终端
-（`run_device_terminal.sh video|sensor|env`）在同一块板上各开一个进程，
-各自独立 TCP 长连接指向边缘 `192.168.4.1`——与 WSL 演示里同机开三个
-终端窗口的形态一致。
+端侧设备板同理只配**一个** `192.168.4.10/24`（不配网关）；端侧只需开
+**一个**终端（`run_device_terminal.sh`，单终端合并形态）：三路业务的
+start 命令在同一块板上各开一个进程，各自独立 TCP 长连接指向边缘
+`192.168.4.1`——与 WSL 演示的单终端形态一致。
 
 服务拉起顺序（前序操作）：
 
@@ -147,10 +147,10 @@ unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
    （`run_edge_terminal.sh` 是 WSL 演示包装：会话复位、显示层 scene 改名
    与着色、固定 `--disable-satellite`、默认本地起中转——生产直启用上面
    的 `edge_node.sh`。）
-2. 端侧机起环境监测终端（2.2.3 只需这一台端侧）：
+2. 端侧机起端侧设备终端（单终端合并三路业务；2.2.3 只需这一台端侧）：
 ```bash
 DEVICE_GATEWAY_HOST=192.168.4.1 PROTOCOL_TEST_RELAY_HOST=47.99.47.169 \
-  ./run_device_terminal.sh env
+  ./run_device_terminal.sh
 ```
 
 **跨机注意**：门命令（`init_link_connect`/`multi_source_access`/
@@ -173,11 +173,11 @@ edge_forwarder 之后常开，未启动策略路由期间业务走默认 5G 上�
 | 步骤 | 终端 | 命令 | 预期 |
 |------|------|------|------|
 | 1 初始化接入链路 | 边缘 | `./init_link_connect.sh` | 落 `multi_source_access.enabled`，边缘开始受理端侧数据（`--reset` 是关门复位，只在前置用） |
-| 2 检查链路连接 | 端侧 env | `./check_link_connect.sh` | 三条接入链路状态表 |
-| 3 链路 ping 测试 | 端侧 env | `./ping_link_test.sh --real` | 接入链路 ICMP 实测边缘 192.168.4.x；回传链路 TCP 实测 11500/19100/11410 |
-| 4 起始测试 | 端侧 env | `./start_test.sh` | 默认 990E261B/env 身份发出首包 |
-| 5 持续传输 | 端侧 env | `./keep_transfer.sh --duration 600` | 边缘受理、暂不上云（转发门未开，属预期） |
-| 5 多链路并发带宽 | 端侧 env | `./multi_link_bandwidth.sh --duration 5` | 三条接入链路并发吞吐表 |
+| 2 检查链路连接 | 端侧 | `./check_link_connect.sh` | 三条接入链路状态表 |
+| 3 链路 ping 测试 | 端侧 | `./ping_link_test.sh --real` | 接入链路 ICMP 实测边缘 192.168.4.x；回传链路 TCP 实测 11500/19100/11410 |
+| 4 起始测试 | 端侧 | `./start_test.sh` | 默认 990E261B/env 身份发出首包 |
+| 5 持续传输 | 端侧 | `./keep_transfer.sh --duration 600` | 边缘受理、暂不上云（转发门未开，属预期） |
+| 5 多链路并发带宽 | 端侧 | `./multi_link_bandwidth.sh --duration 5` | 三条接入链路并发吞吐表 |
 | 6 打开边缘转发 | 边缘 | `./edge_forward.sh --start` | 落 `edge_forward.enabled`，边缘建立到云端转发 |
 | 收尾 打通端到端 | 边缘 | `./start_test.sh --device-id 990E261B --biz-type env` | 转发开启后补发一包，本机台账记 sent |
 | 收尾 链路数据查询 | 边缘 | `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169 ./query_link_data.sh` | live 核对：云端最新 msg_id 与最后发送一致 |
@@ -204,34 +204,32 @@ Use a short duration while checking the workflow, for example
 
 ## 2.2.4 integration test
 
-大纲 2.2.4 的三路多源数据来自三个端侧终端（同一目录可同时开三个 WSL 终端，
-各自独立 TCP 长连接；状态写入与 msg_id 分配均有跨进程锁）：
-
-```bash
-./run_device_terminal.sh video    # 视频流终端 182D48D7（有线，含真实媒体口 7777；每10s附带火情上报）
-./run_device_terminal.sh sensor   # 传感器终端 3C15DB07（Wi-Fi；名单过滤生效后自动换无关 ID）
-./run_device_terminal.sh env      # 环境监测模块终端 990E261B（Wi-Fi/蓝牙/有线轮换）
-```
+大纲 2.2.4 的三路多源数据来自**同一个端侧终端**（单终端合并形态）：
+`./run_device_terminal.sh` 无需参数，视频流 182D48D7（有线，含真实媒体口
+7777，每10s附带火情上报）/ 传感器 3C15DB07（Wi-Fi，名单过滤生效后自动换
+无关 ID）/ 环境监测 990E261B（Wi-Fi/蓝牙/有线轮换）三路业务在同一终端
+依次输入 start 命令即可（各命令独立进程、独立 TCP 长连接，可同时运行；
+状态写入与 msg_id 分配均有跨进程锁）。
 
 三个 start 命令默认**持续发送**（每秒一条，`--count`/`--duration` 可覆盖，
 Ctrl-C 停止）。`./multi_source_access.sh` 执行前，边缘网关（真网关与本地模型
 一致）只累计接收统计，不受理端侧数据：JSON 口报文计 `gate_drop`，媒体口
 VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信接入：起步
 **不过滤名单**（全部放行），`./trust_access_add_whitelist.sh` 从服务器拉取白名单
-并打印后过滤生效，传感器终端发送端逐报文自动切换为无关设备 ID
+并打印后过滤生效，传感器业务发送端逐报文自动切换为无关设备 ID
 （ILLEGAL-SENSOR），被边缘拒收（`whitelist_drop`）并记阻断日志。
 
-火情由**视频流终端**上报：`start_video_stream` 持续发送期间每 10 秒附带一条
+火情由**视频流业务**上报：`start_video_stream` 持续发送期间每 10 秒附带一条
 fire 业务报文（同一设备身份、有线接入），载荷为 `"fire": "false"`（无火情）；
 下列命令只切换火情标志，下一条上报即变为 `"fire": "true"`（有火情）：
 
 ```bash
-./fire_alarm.sh --on     # 触发火情：视频流终端后续火情上报载荷为 true
+./fire_alarm.sh --on     # 触发火情：后续火情上报载荷变为 true
 ./fire_alarm.sh --off    # 解除火情：恢复 false
 ./fire_alarm.sh          # 只查看当前火情状态
 ```
 
-风速模拟（环境监测终端）：`./start_wind_data.sh` 以独立风速设备 DEV-001
+风速模拟：`./start_wind_data.sh` 以独立风速设备 DEV-001
 （`PROTOCOL_TEST_DEVICE_WIND` 可覆盖）持续发送 windspeed 读数（sensor 业务，
 Wi-Fi/蓝牙/有线轮换接入，Ctrl-C 停止）。DEV-001 已内置在本地中转的白名单
 （whitelist.json）；如需追加其他设备，在云端或边缘终端执行
@@ -251,27 +249,23 @@ Wi-Fi/蓝牙/有线轮换接入，Ctrl-C 停止）。DEV-001 已内置在本地�
 
 跨机约束同 2.2.3：门命令的标记文件写在执行机本地，`multi_source_access`/
 `trust_access_*` 必须在**边缘机**上执行；端侧板只跑发送类命令。设备板起
-三个终端（同一块板、三个进程，`run_device_terminal.sh` 默认即真发
-`PROTOCOL_TEST_LIVE=1`；video 终端默认开真实媒体口 → 边缘 7777，每 10s
+**一个**端侧终端（同一块板；`run_device_terminal.sh` 默认即真发
+`PROTOCOL_TEST_LIVE=1`，视频流业务走真实媒体口 → 边缘 7777，每 10s
 附带火情上报）：
 
 ```bash
 DEVICE_GATEWAY_HOST=192.168.4.1 DEVICE_MEDIA_HOST=192.168.4.1 \
-PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh video
-DEVICE_GATEWAY_HOST=192.168.4.1 PROTOCOL_TEST_RELAY_HOST=47.99.47.169 \
-./run_device_terminal.sh sensor
-DEVICE_GATEWAY_HOST=192.168.4.1 PROTOCOL_TEST_RELAY_HOST=47.99.47.169 \
-./run_device_terminal.sh env
+PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh
 ```
 
 | 步骤 | 终端 | 命令 | 预期 |
 |------|------|------|------|
-| 1 多源业务接入 | 端侧×3 | 三终端各自 `./start_video_stream.sh` / `./start_sensor_data.sh` / `./start_env_data.sh` | 持续发送、跨越开闸时点；开闸前到达的报文边缘只计 `gate_drop` 接收统计（不受理属预期） |
+| 1 多源业务接入 | 端侧 | 依次（或同时）执行 `./start_video_stream.sh` / `./start_sensor_data.sh` / `./start_env_data.sh`（同一终端） | 持续发送、跨越开闸时点；开闸前到达的报文边缘只计 `gate_drop` 接收统计（不受理属预期） |
 | 2 多源接入门 | 边缘 | `./multi_source_access.sh` | 落 `multi_source_access.enabled`，边缘开始受理并转发上云；真网关日志出现 `[MULTI-SOURCE]` 受理公告 |
 | 3 服务日志查询 | 边缘 | `./query_service_log.sh` | 接收统计 + 业务传输日志表（本地台账）；真网关日志 tail 可见受理/转发行 |
 | 4 云端日志查询 | 边缘 | `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169 ./query_link_data.sh` | live 核对：云端最新 msg_id 与发送一致（真实云节点只读面） |
 | 5 可信接入 | 边缘 | `PROTOCOL_TEST_WHITELIST_URL=http://47.99.47.169:11502/whitelist ./trust_access_add_whitelist.sh 182D48D7 3C15DB07 ILLEGAL-SENSOR` | 只读拉取生产中转白名单并打印、逐个在册核对；执行后过滤生效 |
-| 6 非法设备发送 | 端侧 | 传感器终端继续发送（过滤生效后自动换无关 ID）；`./start_test.sh --device-id UNKNOWN-001` | 边缘拒收并计 `whitelist_drop`；真网关日志 `[WHITELIST][BLOCK] reason=not_in_whitelist` |
+| 6 非法设备发送 | 端侧 | 传感器业务继续发送（过滤生效后自动换无关 ID）；`./start_test.sh --device-id UNKNOWN-001` | 边缘拒收并计 `whitelist_drop`；真网关日志 `[WHITELIST][BLOCK] reason=not_in_whitelist` |
 | 7 可信接入统计 | 边缘 | `./trust_access_calculate.sh` | 受理/拒收统计表（本地台账）；真网关以日志 `whitelist_drop`/`gate_drop` 周期计数为准 |
 
 单终端回归 `./run_2_2_4.sh` 即同一顺序的本地版；纯真机协议（无模型台账）
@@ -281,9 +275,9 @@ DEVICE_GATEWAY_HOST=192.168.4.1 PROTOCOL_TEST_RELAY_HOST=47.99.47.169 \
 ### WSL2 本地演示
 
 ```bash
-./start_video_stream.sh           # 视频流终端（持续发送，Ctrl-C 停止）
-./start_sensor_data.sh            # 传感器终端（持续发送；过滤生效后自动变为非法设备）
-./start_env_data.sh               # 环境监测模块终端（持续发送）
+./start_video_stream.sh           # 视频流业务（持续发送，Ctrl-C 停止）
+./start_sensor_data.sh            # 传感器业务（持续发送；过滤生效后自动变为非法设备）
+./start_env_data.sh               # 环境监测业务（持续发送）
 ./multi_source_access.sh          # 边缘网关终端：此后边缘才开始受理端侧数据
 ./query_service_log.sh            # 边缘网关终端
 ./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（默认只显示日志表）

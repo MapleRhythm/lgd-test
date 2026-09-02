@@ -13,16 +13,16 @@
 ```bash
 ./run_edge_terminal.sh              # 边缘网关终端（自动拉起本地中转）
 ./run_cloud_terminal.sh             # 云端管理节点终端
-./run_device_terminal.sh video      # 视频流终端      182D48D7  有线（含真实媒体口 7777）
-./run_device_terminal.sh sensor     # 传感器终端      3C15DB07  Wi-Fi（名单过滤生效后自动换无关 ID）
-./run_device_terminal.sh env        # 环境监测模块终端 990E261B  Wi-Fi/蓝牙/有线（轮换）
+./run_device_terminal.sh            # 端侧设备终端（单终端合并三路业务，无需参数）
 ```
 
-大纲 2.2.4 的三个端侧终端可同时运行（状态写入与 msg_id 分配均有跨进程锁）。
-三个 start 命令默认持续发送（Ctrl-C 停止）；`./multi_source_access.sh` 执行前
+端侧三路业务（视频流 182D48D7/有线、传感器 3C15DB07/Wi-Fi、环境监测
+990E261B/轮换）合并到同一个端侧终端：依次输入三个 start 命令即可，各命令是
+独立进程、独立 TCP 长连接（可同时运行，状态写入与 msg_id 分配均有跨进程锁）。
+start 命令默认持续发送（Ctrl-C 停止）；`./multi_source_access.sh` 执行前
 边缘网关不受理端侧数据（接入门）。可信接入：起步不过滤名单（全部放行），
 `./trust_access_add_whitelist.sh` 拉取并打印服务器白名单后过滤生效，传感器
-终端自动换无关设备 ID 被拒收并记阻断日志。
+业务自动换无关设备 ID 被拒收并记阻断日志。
 
 每次重跑自动清台账：开启边缘终端即开启新演示会话（复位转发门/接入门/
 过滤门并清空全部 jsonl 台账）；`run_2_2_3.sh` / `run_2_2_4.sh` / `run_2_2_5.sh`
@@ -30,22 +30,22 @@
 
 ## 大纲 2.2.3 运行流程（mock 演示版）
 
-三终端就绪后按步骤执行；2.2.3 的端侧就是**环境监测终端**
-（该终端内 `start_test` / `keep_transfer` / `multi_link_bandwidth` 默认即环境监测身份
-990E261B / env）。一键脚本：在环境监测终端执行 `./run_2_2_3.sh`。
+三终端就绪后按步骤执行；2.2.3 的端侧业务默认即**环境监测身份**
+（终端内 `start_test` / `keep_transfer` / `multi_link_bandwidth` 默认 990E261B / env）。
+一键脚本：在端侧设备终端执行 `./run_2_2_3.sh`。
 
 | 步骤 | 命令 | 执行终端 |
 |---|---|---|
-| 前置 | `./init_link_connect.sh --reset` → `./policy-route.sh --start` → `./msg-encap.sh --start` | 环境监测 |
-| 1 初始化端侧链路 | `./init_link_connect.sh` | 环境监测 |
-| 2 接入链路连通性检查 | `./check_link_connect.sh` | 环境监测 |
-| 3 接入链路时延实测 | `./ping_link_test.sh` | 环境监测 |
-| 4 业务数据发送 | `./start_test.sh` | 环境监测 |
+| 前置 | `./init_link_connect.sh --reset` → `./policy-route.sh --start` → `./msg-encap.sh --start` | 端侧 |
+| 1 初始化端侧链路 | `./init_link_connect.sh` | 端侧 |
+| 2 接入链路连通性检查 | `./check_link_connect.sh` | 端侧 |
+| 3 接入链路时延实测 | `./ping_link_test.sh` | 端侧 |
+| 4 业务数据发送 | `./start_test.sh` | 端侧 |
 | 5 网关服务日志查询 | `./query_service_log.sh` | 边缘网关 |
 | 6 建立转发通道 | `./edge_forward.sh --start`（**此后业务流真实发往云端**） | 边缘网关 |
-| 7 持续传输（仅有线） | `./keep_transfer.sh --duration 600 --interval 1` | 环境监测 |
-| 8 多模态并发传输 | `./multi_link_bandwidth.sh --duration 5` | 环境监测 |
-| 9 转发建立后端到端发送 | `./start_test.sh` | 环境监测 |
+| 7 持续传输（仅有线） | `./keep_transfer.sh --duration 600 --interval 1` | 端侧 |
+| 8 多模态并发传输 | `./multi_link_bandwidth.sh --duration 5` | 端侧 |
+| 9 转发建立后端到端发送 | `./start_test.sh` | 端侧 |
 | 10 端到端链路数据查询 | `./query_link_data.sh`（含云端实时通道表与端到端核对） | 云端 |
 
 > 步骤 6 开门前，业务报文只在边缘接入与分类，不向云端转发（大纲语义）。
