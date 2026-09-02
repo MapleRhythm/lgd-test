@@ -224,7 +224,7 @@ VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信�
 ./start_env_data.sh               # 环境监测模块终端（持续发送）
 ./multi_source_access.sh          # 边缘网关终端：此后边缘才开始受理端侧数据
 ./query_service_log.sh            # 边缘网关终端
-./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（末尾输出云端与边缘记录一致性核对）
+./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（默认只显示日志表）
 ./trust_access_add_whitelist.sh 182D48D7 3C15DB07 ILLEGAL-SENSOR   # 拉取并打印服务器白名单；执行后过滤生效
 ./start_test.sh --device-id UNKNOWN-001
 ./trust_access_calculate.sh
@@ -232,6 +232,7 @@ VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信�
 ./edge-query.sh --route-switch
 ./cloud-query.sh --msg-id-check
 ./cloud-query.sh --link-id-check
+./query_cloud_log.sh --device-type video/sensor/env --verify  # 收尾核对：附云端-边缘一致性核对表
 ```
 
 `./run_2_2_4.sh` 单终端回归版按同样语义执行：前置 `init_link_connect --reset`

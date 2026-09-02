@@ -48,7 +48,7 @@ section '2.2.4'
 ./cloud-query.sh --biz-type video/sensor/control-alarm
 ./cloud-query.sh --msg-id-check
 ./cloud-query.sh --link-id-check
-./query_cloud_log.sh --device-type video/sensor/env
+./query_cloud_log.sh --device-type video/sensor/env --verify
 ./edge-query.sh --device-id "${PROTOCOL_TEST_DEVICE_VIDEO:-182D48D7}"
 ./cloud-query.sh --route-decision
 ./cloud-query.sh --link-switch

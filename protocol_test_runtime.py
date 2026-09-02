@@ -1524,6 +1524,9 @@ def cmd_query_cloud_log(args) -> int:
     records = [item for item in records if keep(item)]
     rows = [(item.get("device_id", ""), item.get("biz_type", ""), item.get("msg_id", ""), item.get("link_id", ""), item.get("classification", ""), item.get("parse_status", "")) for item in records[-args.limit:]]
     table(("Device", "Business", "Message", "Link", "Class", "Parse"), rows or [("-", "-", "-", "-", "-", "no records")])
+    if not args.verify:
+        # 默认不直接显示核对表：需要云端-边缘一致性核对时显式加 --verify。
+        return 0
     # Outline 2.2.4 closing step: under the same device-type/time filters,
     # reconcile the cloud-side records against the edge gateway's local
     # forward records (per business type, counts and msg_id correspondence).
@@ -2022,6 +2025,8 @@ def build_parser():
     item.add_argument("--from", dest="from_time", default=None)
     item.add_argument("--to", dest="to_time", default=None)
     item.add_argument("--limit", type=int, default=40)
+    # 核对表按需输出：默认只显示云端日志表，--verify 才附加云端-边缘核对。
+    item.add_argument("--verify", action="store_true")
     item.set_defaults(function=cmd_query_cloud_log)
 
     item = sub.add_parser("whitelist-add")
