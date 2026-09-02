@@ -63,19 +63,21 @@ Run the commands in the document order, switching terminals when the document
 changes node ownership:
 
 ```text
-2.2.3 edge:  init_link_connect, check_link_connect, ping_link_test,
-             start_test, keep_transfer, multi_link_bandwidth, edge_forward
-      cloud: query_link_data
+2.2.3 edge:   init_link_connect, edge_forward
+      device: check_link_connect, ping_link_test, start_test,
+               keep_transfer, multi_link_bandwidth   （环境监测终端 env）
+      cloud:  query_link_data
 
-2.2.4 edge:  start_video_stream, start_sensor_data, start_env_data,
-             multi_source_access, query_service_log, trust_access_add_whitelist,
-             start_test (illegal device), trust_access_calculate, edge-query
-      cloud: query_cloud_log, cloud-query, query_cloud_log, cloud-query
+2.2.4 device: start_video_stream（含每10s火情上报）, start_sensor_data,
+               start_env_data, start_test (illegal device)
+      edge:   multi_source_access, query_service_log, trust_access_add_whitelist,
+               trust_access_calculate, edge-query
+      cloud:  query_cloud_log, cloud-query, query_cloud_log, cloud-query
 
-2.2.5 edge:  start_uplink_transfer, link-monitor, edge-query, start_uplink_transfer,
-             link-monitor, start_uplink_transfer, msg-encap, set_channel,
-             start_transfer, limit_rate
-      cloud: cloud-mgr, query_link_data, cloud-query
+2.2.5 edge:   start_uplink_transfer, link-monitor, edge-query, policy-route,
+               msg-encap, set_channel, start_transfer, limit_rate
+      other:  link_block --stop / --recover   （另一台设备下发服务器控制指令）
+      cloud:  cloud-mgr, query_link_data, cloud-query
 ```
 
 The individual `cloud-query.sh`, `query_cloud_log.sh` and `cloud-mgr.sh`
