@@ -1,6 +1,7 @@
-# 2.2.3 逐步手动执行手册
+# 2.2.3 / 2.2.4 逐步手动执行手册
 
-`run_2_2_3_production.sh` 的一键流程拆成单条命令，逐条执行、每步可见。
+`run_2_2_3_production.sh` / `run_2_2_4_production.sh` 的一键流程拆成单条命令，
+逐条执行、每步可见。
 两个终端：**A = 边缘网关（前台运行，日志实时可见）**，**B = 端侧设备**。
 
 > 纯演练到步骤 7 为止**没有任何字节发往中转**（转发门未开，报文在网关队列排队，
@@ -8,7 +9,7 @@
 > 另有两扇门与开发侧语义一致：**接入门**（网关启动后默认不受理端侧数据，
 > 步骤 1 `init_link_connect.sh` 打开后才受理，此前报文只计接收统计 gate_drop）
 > 与**名单过滤门**（默认不过滤、全部放行；2.2.4 的 trust_access_add_whitelist
-> 才会启用，本流程包不涉及）。
+> 才会启用，见下半部分 2.2.4 手册）。
 
 ## 准备
 
@@ -145,4 +146,127 @@ tail -n 3 .state/sent.jsonl      # 端侧发送审计，与中转 STAT 计数对
 |---|---|
 | 准备 + 终端 A | 0 环境自检 / 1 启动边缘网关 |
 | 步骤 1–10 | 2–11 各节（步骤名相同） |
+| 收尾 | EXIT trap 自动执行 |
+
+---
+
+# 2.2.4 逐步手动执行手册
+
+`run_2_2_4_production.sh` 拆成单条命令。终端 A/B 同上；若已完成上面的
+2.2.3 手册，终端 A 的边缘网关可以继续用（先做下面的会话复位）。
+
+> 2.2.4 从"不受理"起步：**接入门先关**（开闸前发送的报文只计 gate_drop，
+> 用于多源接入前后的受理对比），**转发门先开**（云端一致性核对需要）。
+> 因此步骤 0 会做会话复位再单独开转发——此后受理到的真实业务流即发往
+> 生产中转 47.99.47.169。名单过滤门到步骤 6 才启用，此前全部放行。
+
+## 步骤 0 前提：会话复位 + 打开转发通道（在边缘网关执行）
+
+```bash
+cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/edge
+
+./init_link_connect.sh --reset      # 关接入/转发/过滤三扇门（2.2.4 从不受理起步）
+./edge_forward.sh --start           # 单独打开转发通道（云端一致性核对需要）
+```
+
+单机演练在终端 B 执行即可；真机三节点部署时在终端 A（边缘网关）执行。
+
+## 步骤 1 多源业务接入·开闸前（三终端并发发送）
+
+```bash
+cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/device
+export EDGE_HOST=127.0.0.1 EDGE_JSON_PORT=18888
+
+# 三个终端各自长连接并发（单机可加 & 后台同跑，或分三个窗口）
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 5 --interval 1
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 5 --interval 1
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 5 --interval 1
+```
+
+预期：各 `[SUMMARY] 发送 N 条，失败 0 次`；终端 A 日志只见接收统计
+（`gate_drop` 累加），无 `[MULTI-SOURCE] 受理` 公告、无转发。
+
+## 步骤 2 多源接入门打开（multi_source_access，在边缘网关执行）
+
+```bash
+../edge/multi_source_access.sh          # 打开接入门：边缘开始受理端侧数据
+../edge/multi_source_access.sh --status # 可选：确认门状态
+```
+
+## 步骤 3 开闸后三终端再发 + 视频流终端火情上报
+
+```bash
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 12 --interval 1
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 12 --interval 1
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 12 --interval 1
+
+# 火情随视频流终端上报：同一设备身份、有线链路，每 10s 一条（默认 false）
+python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --interval 10 --duration 12
+```
+
+预期：终端 A 出现 `[MULTI-SOURCE] 多源业务接入已启动` 公告并开始转发上云；
+fire 报文约 10s 一条（`--duration 12` 可见两条）。有火情演练加 `--fire true`。
+
+## 步骤 4 边缘网关服务日志查询（query_service_log）
+
+```bash
+tail -n 40 ../edge/gateway.log       # 或直接看终端 A 屏幕
+```
+
+## 步骤 5 端到端链路数据查询（query_link_data，生产只读验证）
+
+```bash
+bash ../cloud/query_relay_state.sh
+tail -n 5 .state/sent.jsonl          # 端侧发送审计，与中转 STAT 计数对账
+```
+
+## 步骤 6 可信接入·拉取服务器白名单并生效（在边缘网关执行）
+
+```bash
+../edge/trust_access_add_whitelist.sh 182D48D7 3C15DB07 990E261B
+```
+
+白名单只读拉取自中转 `11502`（与网关自身同一来源），打印在册设备并逐个
+校验指定 ID（不在册给 WARN）；随后名单过滤生效，网关经标记文件感知、
+无需重启。
+
+## 步骤 7 名单外设备发送（非法终端被拒收）
+
+```bash
+python3 send_business.py --device-id ILLEGAL-SENSOR --count 5
+python3 send_business.py --device-id UNKNOWN-001   --count 5
+```
+
+预期：发送本身成功（TCP 层），但边缘拒收——终端 A 日志出现
+`[WHITELIST][BLOCK] device_id=... reason=not_in_whitelist`，计入 `whitelist_drop`。
+
+## 步骤 8 可信接入统计（trust_access_calculate，在边缘网关执行）
+
+```bash
+EDGE_LOG=../edge/gateway.log ../edge/trust_access_calculate.sh
+```
+
+输出：门状态公告（最近4条）、拒收明细（最近5条）与拒收累计、
+网关周期统计行的 `whitelist_drop`/`gate_drop` 计数。
+
+## 收尾
+
+```bash
+../edge/init_link_connect.sh --reset   # 关三扇门（接入/转发/过滤）
+# 终端 A：Ctrl-C 停止边缘网关
+```
+
+## 与一键脚本的关系（2.2.4）
+
+| 手册步骤 | `run_2_2_4_production.sh` 对应段 |
+|---|---|
+| 步骤 0 | 1 启动边缘网关（内含会话复位）/ 2 打开转发通道 |
+| 步骤 1 | 3 开闸前三终端并发发送 |
+| 步骤 2 | 4 多源接入门打开 |
+| 步骤 3 | 5 开闸后再发 + 火情上报 |
+| 步骤 4 | 6 边缘网关服务日志 |
+| 步骤 5 | 7 端到端链路数据查询 |
+| 步骤 6 | 8 可信接入·白名单拉取并生效 |
+| 步骤 7 | 9 名单外设备发送 |
+| 步骤 8 | 10 可信接入统计 |
 | 收尾 | EXIT trap 自动执行 |

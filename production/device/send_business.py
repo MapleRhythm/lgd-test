@@ -12,6 +12,11 @@
   持续传输    --duration 600 --interval 1  （步骤7 keep_transfer，仅有线）
   多模态并发  --link all --duration 5      （步骤8 三链路并发吞吐）
 
+大纲 2.2.4 多源业务接入的三终端（接入链路与现网一致）：
+  视频流终端   --biz-type video --link wired    （有线）
+  传感器终端   --biz-type sensor --link wifi    （Wi-Fi）
+  环境监测终端 --biz-type env --link rotate     （Wi-Fi/蓝牙/有线逐条轮换）
+
 火情上报由视频流终端承担（每10s一条，无火情 false / 有火情 true）：
   ./send_business.py --device-id 182D48D7 --biz-type fire --link wired \
       --interval 10 --duration 600
@@ -149,6 +154,19 @@ class Sender:
             # --fire true 为有火情，默认 false 无火情。
             message["fire"] = self.fire
             message["scene"] = str(random.randint(1, 5))
+        elif self.biz_type == "env":
+            # 环境监测读数（与现网 mock_env_monitor 同构，大纲 2.2.4 环境终端）。
+            message["temperature"] = round(random.uniform(23.5, 29.5), 1)
+            message["humidity"] = round(random.uniform(45.0, 70.0), 1)
+            message["pm25"] = random.randint(18, 65)
+            message["co2"] = random.randint(450, 820)
+            message["noise"] = round(random.uniform(41.0, 55.5), 1)
+        elif self.biz_type == "video":
+            # 视频流业务元数据（真实媒体帧走 7777 VID0，JSON 口上报流描述）。
+            message["codec"] = "H.264"
+            message["resolution"] = "1920x1080"
+            message["fps"] = 25
+            message["frames"] = random.randint(240, 260)
         else:
             message["windspeed"] = self.source.windspeed()
         message["data_source"] = "device-sender"
@@ -181,12 +199,17 @@ def run_single(args) -> int:
     sock = None
     deadline = time.monotonic() + args.duration if args.duration else None
     failures = 0
+    rotate = args.link == "rotate"
     try:
         while True:
             if args.count and sender.sent >= args.count:
                 break
             if deadline and time.monotonic() >= deadline:
                 break
+            if rotate:
+                # 环境监测终端：每条报文轮换一条接入链路（wifi/蓝牙/有线），
+                # 与现网 env 终端的轮流分担语义一致。
+                sender.link_id = LINKS[sender.sent % len(LINKS)]
             sock, ok, size = sender.send_one(sock)
             if not ok:
                 failures += 1
@@ -196,8 +219,12 @@ def run_single(args) -> int:
                     break
                 time.sleep(1.0)
                 continue
-            detail = ("fire=%s" % sender.fire if args.biz_type in ("fire", "control-alarm")
-                      else "windspeed=%s" % (source.fixed or "sim"))
+            if args.biz_type in ("fire", "control-alarm"):
+                detail = "fire=%s" % sender.fire
+            elif args.biz_type in ("env", "video"):
+                detail = "%s sim" % args.biz_type
+            else:
+                detail = "windspeed=%s" % (source.fixed or "sim")
             print("[SEND] link=%s msg_id=%s bytes=%d %s" %
                   (args.link, sender.last_msg_id, size, detail))
             if args.interval > 0 and not (args.count and sender.sent >= args.count):
@@ -262,7 +289,8 @@ def main() -> int:
     parser.add_argument("--device-id", default="3C15DB07", help="设备 ID，须在中转白名单内")
     parser.add_argument("--biz-type", default="sensor", help="业务类型（默认 sensor）")
     parser.add_argument("--link", default="wired",
-                        help="接入链路标记：wifi|bluetooth|wired|all（all=三链路并发）")
+                        help="接入链路标记：wifi|bluetooth|wired|all|rotate"
+                             "（all=三链路并发，rotate=逐条轮换）")
     parser.add_argument("--count", type=int, default=0, help="定量发送条数（0=不限，按 duration）")
     parser.add_argument("--duration", type=float, default=0.0, help="持续发送秒数（0=按 count）")
     parser.add_argument("--interval", type=float, default=1.0, help="发送间隔秒（默认 1.0）")
