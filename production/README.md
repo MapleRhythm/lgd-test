@@ -90,6 +90,17 @@ python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired \
     --count 1 --fire true                 # 有火情单条（--fire 切换布尔载荷）
 ```
 
+**单终端合并形态（`--background`，2.2.4 默认）**：三台终端合并为同一终端
+依次输入三条业务发送指令，每条只打印一行 `[LAUNCH] 业务发送启动`（含
+后台 pid 与日志路径）即返回提示符；实际发送在后台进行，`[SEND]` 明细与
+`[SUMMARY]` 写 `--bg-log` 日志文件（默认 `.state/sender-<biz>-<时间>.log`），
+按 `--duration`/`--count` 自行结束：
+
+```bash
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired \
+    --duration 12 --interval 1 --background
+```
+
 发送审计：`device/.state/sent.jsonl`（每条报文全量），`counters.json` 保证
 msg_id/event_id 跨运行连续，可与中转 STAT 计数对账。
 
@@ -109,13 +120,16 @@ export EDGE_HOST=<边缘网关IP>          # 默认 127.0.0.1
 
 1. **前提**：会话复位（`init_link_connect.sh --reset`，三扇门全关）后单独
    打开转发通道（2.2.4 需云端一致性核对）；接入门保持关闭。
-2. **开闸前三终端并发发送**：视频流（`--biz-type video --link wired`，182D48D7）/
-   传感器（`--biz-type sensor --link wifi`，3C15DB07）/ 环境监测
+2. **开闸前单终端依次启动三路业务**（`--background`：每条指令只打印一行
+   `[LAUNCH] 业务发送启动` 即返回提示符，三路业务后台并发发送）：视频流
+   （`--biz-type video --link wired`，182D48D7）/ 传感器
+   （`--biz-type sensor --link wifi`，3C15DB07）/ 环境监测
    （`--biz-type env --link rotate`，990E261B，Wi-Fi/蓝牙/有线逐条轮换）——
    本轮报文只计 `gate_drop`。
 3. **`edge/multi_source_access.sh`**：打开多源接入门，边缘开始受理端侧数据。
-4. **开闸后三终端再发 + 火情上报**：视频流终端随流每 10s 一条 fire 报文
-   （同一设备身份、有线链路，默认无火情 false），本轮起受理并转发上云。
+4. **开闸后再发 + 火情上报**：同一终端再输入三条业务指令与火情上报指令
+   （视频流终端随流每 10s 一条 fire 报文，同一设备身份、有线链路，默认
+   无火情 false），本轮起受理并转发上云。
 5. **服务日志与只读核对**：tail 网关日志（query_service_log）+
    `cloud/query_relay_state.sh` + `device/.state/sent.jsonl` 对账。
 6. **`edge/trust_access_add_whitelist.sh <设备ID...>`**：从中转 `11502` 只读

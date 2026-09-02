@@ -17,6 +17,13 @@
   传感器终端   --biz-type sensor --link wifi    （Wi-Fi）
   环境监测终端 --biz-type env --link rotate     （Wi-Fi/蓝牙/有线逐条轮换）
 
+单终端合并形态（--background，2.2.4 生产流程默认）：同一终端依次输入三条
+业务发送指令，每条只打印一行 [LAUNCH] 业务发送启动日志即返回提示符，
+实际发送在后台进行（[SEND]/[SUMMARY] 写 --bg-log 日志文件，默认
+<state>/sender-<biz>-<时间>.log；按 --duration/--count 自行结束）：
+  python3 send_business.py --device-id 182D48D7 --biz-type video --link wired \
+      --duration 12 --interval 1 --background
+
 火情上报由视频流终端承担（每10s一条，无火情 false / 有火情 true）：
   ./send_business.py --device-id 182D48D7 --biz-type fire --link wired \
       --interval 10 --duration 600
@@ -34,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import socket
 import sys
@@ -282,6 +290,58 @@ def run_multi(args) -> int:
     return 0
 
 
+def _launch_line(args, log_path: str, pid: int | None = None) -> str:
+    amount = ("count=%d" % args.count) if args.count else ("duration=%gs" % args.duration)
+    pid_part = " pid=%d" % pid if pid is not None else ""
+    return ("[LAUNCH] 业务发送启动：biz=%s device=%s link=%s %s interval=%gs%s 日志=%s"
+            % (args.biz_type, args.device_id, args.link, amount, args.interval,
+               pid_part, log_path))
+
+
+def _enter_background(args) -> int | None:
+    """单终端合并形态：打印一行业务发送启动日志后转入后台。
+
+    父进程输出 [LAUNCH]（含后台进程 pid 与日志路径）后立即退出，终端
+    马上可以输入下一条指令；子进程脱离会话，把 [SEND]/[SUMMARY] 全部
+    写入 --bg-log 日志文件，按 --duration/--count 自行结束。
+    返回 None 表示当前是子进程，继续正常发送流程。
+    """
+    if not hasattr(os, "fork"):
+        print("[LAUNCH][ERROR] --background 仅支持 Linux（真机/WSL 部署）", file=sys.stderr)
+        return 2
+    if args.bg_log:
+        log_path = args.bg_log
+    else:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = str(STATE_DIR / ("sender-%s-%s.log" % (
+            args.biz_type, datetime.now(BJ).strftime("%Y%m%d-%H%M%S"))))
+    log_file = Path(log_path)
+    if str(log_file.parent) not in ("", "."):
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        pid = os.fork()
+    except OSError as exc:
+        print("[LAUNCH][ERROR] fork 失败：%s" % exc, file=sys.stderr)
+        return 2
+    if pid > 0:
+        print(_launch_line(args, log_path, pid), flush=True)
+        return 0
+    # 子进程：脱离终端、输出重定向到日志文件，回到正常发送流程。
+    os.setsid()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    log_fh = open(log_path, "a", encoding="utf-8", buffering=1)
+    os.dup2(log_fh.fileno(), 1)
+    os.dup2(log_fh.fileno(), 2)
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except AttributeError:  # py<3.7 无 reconfigure，行缓冲兜底
+        pass
+    print(_launch_line(args, log_path, os.getpid()))
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="生产环境端侧业务发送器（真机协议）")
     parser.add_argument("--host", default="127.0.0.1", help="边缘网关地址（默认 127.0.0.1）")
@@ -298,15 +358,25 @@ def main() -> int:
     parser.add_argument("--values-file", default=None, help="业务读数文件，逐行喂入（真实传感器流）")
     parser.add_argument("--fire", choices=("true", "false"), default="false",
                         help="火情布尔载荷（fire 业务；默认 false 无火情，true=有火情）")
+    parser.add_argument("--background", action="store_true",
+                        help="单终端合并形态：打印业务发送启动日志后转后台发送，"
+                             "明细/汇总写 --bg-log（按 --duration/--count 自行结束）")
+    parser.add_argument("--bg-log", default=None, metavar="PATH",
+                        help="后台模式日志文件（默认 <state>/sender-<biz>-<时间>.log）")
     args = parser.parse_args()
 
     if args.link == "all":
         if args.duration <= 0:
             print("--link all 需要 --duration", file=sys.stderr)
             return 2
-        return run_multi(args)
     if args.count <= 0 and args.duration <= 0:
         args.count = 1
+    if args.background:
+        parent_rc = _enter_background(args)
+        if parent_rc is not None:
+            return parent_rc
+    if args.link == "all":
+        return run_multi(args)
     return run_single(args)
 
 

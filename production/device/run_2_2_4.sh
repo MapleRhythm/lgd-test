@@ -29,7 +29,6 @@ EDGE_SSH="${EDGE_SSH:-}"
 EDGE_REMOTE_DIR="${EDGE_REMOTE_DIR:-$SCRIPT_DIR/../edge}"
 EDGE_LOG="${EDGE_LOG:-gateway.log}"
 SEND_LOG_DIR="$SCRIPT_DIR/.state"
-PIDS=()
 LOGS=()
 
 section() {
@@ -46,41 +45,40 @@ on_edge() {  # 在边缘网关执行（有 EDGE_SSH 则远程，否则打印指�
   fi
 }
 
-cleanup() {
-  if ((${#PIDS[@]})); then
-    for pid in "${PIDS[@]}"; do
-      kill "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
-    done
-  fi
-}
-trap cleanup EXIT INT TERM
-
-start_sender() {  # start_sender <日志名> <send_business 参数...>（后台运行并登记 PID）
+# 后台发送器按 --duration 自行结束（中断时最长残留一轮时长），无需清理。
+launch_sender() {  # launch_sender <日志名> <send_business 参数...>（单终端形态：只回显启动日志）
   local log="$SEND_LOG_DIR/$1"; shift
   mkdir -p "$SEND_LOG_DIR"
-  python3 send_business.py --host "$EDGE_HOST" --port "$EDGE_JSON_PORT" "$@" \
-      >"$log" 2>&1 &
-  PIDS+=("$!")
+  rm -f "$log"
+  python3 send_business.py --host "$EDGE_HOST" --port "$EDGE_JSON_PORT" \
+      --background --bg-log "$log" "$@"
   LOGS+=("$log")
-  echo "  发送进程 pid=$! 日志=$log"
 }
 
-wait_senders() {  # 等本轮登记的发送进程全部退出，打印各自 [SUMMARY]
-  local fail=0 pid rc log
-  for pid in "${PIDS[@]}"; do
-    rc=0
-    wait "$pid" || rc=$?
-    if [[ $rc -ne 0 ]]; then
-      fail=$((fail + 1))
+wait_round() {  # wait_round <本轮时长秒>：等本轮后台发送器写出 [SUMMARY] 再打印摘要
+  local budget log left waited
+  budget="$(python3 -c 'import sys; print(int(float(sys.argv[1]) * 2 + 15))' "$1")"
+  waited=0
+  left=1
+  while (( left )) && (( waited < budget )); do
+    left=0
+    for log in "${LOGS[@]}"; do
+      if ! grep -qF '[SUMMARY]' "$log" 2>/dev/null; then left=1; fi
+    done
+    if (( left )); then
+      sleep 1
+      waited=$((waited + 1))
     fi
   done
   for log in "${LOGS[@]}"; do
     echo "  -- $(basename "$log")"
-    grep -F '[SUMMARY]' "$log" || tail -n 2 "$log"
+    grep -F '[SUMMARY]' "$log" 2>/dev/null || tail -n 3 "$log" 2>/dev/null || echo '  （无输出）'
   done
-  echo "  本轮发送进程全部结束（失败 $fail 个）"
-  PIDS=()
+  if (( left )); then
+    echo "  （等待超时 ${budget}s，以上为日志尾部）"
+  else
+    echo "  本轮后台发送全部结束"
+  fi
   LOGS=()
 }
 
@@ -90,32 +88,34 @@ section '2.2.4  前提：会话复位并打开边缘->云端转发通道（在�
 echo '  前提确认：边缘网关须以 2.2.4 直发模式启动（见 README 2.2.4 节）'
 on_edge "./init_link_connect.sh --reset && ./edge_forward.sh --start"
 
-section '2.2.4  多源业务接入·接入门打开前（三终端并发发送）'
+section '2.2.4  多源业务接入·接入门打开前（单终端依次启动三路业务）'
+# 单终端合并形态：三条业务发送指令顺序输入，每条只打印 [LAUNCH] 业务
+# 发送启动日志即返回提示符，三路业务在后台同时发送（明细写各自日志）。
 # 视频流=有线，传感器=Wi-Fi，环境监测=三链路逐条轮换（与现网一致）。
 # 本轮报文在接入门打开前到达：边缘只计接收统计（gate_drop），不转发。
-start_sender pre-video.log --device-id "$DEVICE_VIDEO" --biz-type video --link wired \
+launch_sender pre-video.log --device-id "$DEVICE_VIDEO" --biz-type video --link wired \
     --duration "$SOURCE_DURATION" --interval 1
-start_sender pre-sensor.log --device-id "$DEVICE_SENSOR" --biz-type sensor --link wifi \
+launch_sender pre-sensor.log --device-id "$DEVICE_SENSOR" --biz-type sensor --link wifi \
     --duration "$SOURCE_DURATION" --interval 1
-start_sender pre-env.log --device-id "$DEVICE_ENV" --biz-type env --link rotate \
+launch_sender pre-env.log --device-id "$DEVICE_ENV" --biz-type env --link rotate \
     --duration "$SOURCE_DURATION" --interval 1
-wait_senders
+wait_round "$SOURCE_DURATION"
 
 section '2.2.4  多源接入门打开（multi_source_access，在边缘网关执行）'
 on_edge "./multi_source_access.sh"
 
-section '2.2.4  接入门打开后三终端再发 + 视频流终端火情上报（受理并转发上云）'
-# 火情随视频流终端上报：同一设备身份、有线链路，每 10s 一条 fire 报文
-# （默认无火情 false；--fire true 模拟有火情）。
-start_sender post-video.log --device-id "$DEVICE_VIDEO" --biz-type video --link wired \
+section '2.2.4  接入门打开后再发 + 视频流终端火情上报（受理并转发上云）'
+# 单终端依次输入三条业务指令 + 火情上报指令（同视频流终端设备身份、
+# 有线链路，每 10s 一条 fire 报文，默认无火情 false；--fire true 模拟有火情）。
+launch_sender post-video.log --device-id "$DEVICE_VIDEO" --biz-type video --link wired \
     --duration "$POST_DURATION" --interval 1
-start_sender post-sensor.log --device-id "$DEVICE_SENSOR" --biz-type sensor --link wifi \
+launch_sender post-sensor.log --device-id "$DEVICE_SENSOR" --biz-type sensor --link wifi \
     --duration "$POST_DURATION" --interval 1
-start_sender post-env.log --device-id "$DEVICE_ENV" --biz-type env --link rotate \
+launch_sender post-env.log --device-id "$DEVICE_ENV" --biz-type env --link rotate \
     --duration "$POST_DURATION" --interval 1
-start_sender post-fire.log --device-id "$DEVICE_VIDEO" --biz-type fire --link wired \
+launch_sender post-fire.log --device-id "$DEVICE_VIDEO" --biz-type fire --link wired \
     --interval "$FIRE_INTERVAL" --duration "$POST_DURATION"
-wait_senders
+wait_round "$POST_DURATION"
 
 section '2.2.4  边缘网关服务日志查询（query_service_log，在边缘网关执行）'
 on_edge "tail -n 40 '$EDGE_LOG'"

@@ -176,20 +176,23 @@ cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/edge
 
 单机演练在终端 B 执行即可；真机三节点部署时在终端 A（边缘网关）执行。
 
-## 步骤 1 多源业务接入·开闸前（三终端并发发送）
+## 步骤 1 多源业务接入·开闸前（单终端依次启动三路业务）
 
 ```bash
 cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/device
 export EDGE_HOST=127.0.0.1 EDGE_JSON_PORT=18888
 
-# 三个终端各自长连接并发（单机可加 & 后台同跑，或分三个窗口）
-python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 5 --interval 1
-python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 5 --interval 1
-python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 5 --interval 1
+# 同一终端顺序输入三条业务发送指令（--background：一行启动日志即返回提示符）
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 5 --interval 1 --background
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 5 --interval 1 --background
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 5 --interval 1 --background
 ```
 
-预期：各 `[SUMMARY] 发送 N 条，失败 0 次`；终端 A 日志只见接收统计
-（`gate_drop` 累加），无 `[MULTI-SOURCE] 受理` 公告、无转发。
+预期：每条指令只打印一行 `[LAUNCH] 业务发送启动...`（含后台 pid 与日志
+路径）即回到提示符，三路业务在后台同时发送；本轮时长到后各后台进程自行
+结束，`[SEND]` 明细与 `[SUMMARY] 发送 N 条，失败 0 次` 在各自日志文件
+（默认 `.state/sender-*.log`）。终端 A 日志只见接收统计（`gate_drop`
+累加），无 `[MULTI-SOURCE] 受理` 公告、无转发。
 
 ## 步骤 2 多源接入门打开（multi_source_access，在边缘网关执行）
 
@@ -198,21 +201,21 @@ python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --
 ../edge/multi_source_access.sh --status # 可选：确认门状态
 ```
 
-## 步骤 3 开闸后三终端再发 + 视频流终端火情上报
+## 步骤 3 开闸后再发 + 视频流终端火情上报
 
 ```bash
-python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 12 --interval 1
-python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 12 --interval 1
-python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 12 --interval 1
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 12 --interval 1 --background
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 12 --interval 1 --background
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 12 --interval 1 --background
 
 # 火情随视频流终端上报：同一设备身份、有线链路，每 10s 一条（默认 false）
-python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --interval 10 --duration 12
+python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --interval 10 --duration 12 --background
 ```
 
-预期：终端 A 出现 `[MULTI-SOURCE] 多源业务接入已启动` 公告并开始转发上云；
-fire 报文约 10s 一条（`--duration 12` 可见两条）。直发模式下另见短波短信
-约 20s 一条（`[BAOTONG-V2][SEND]`，时延 `EDGE_SW_DELAY_S`）。有火情演练加
-`--fire true`。
+预期：同步骤 1 的单终端形态（每条指令一行 `[LAUNCH]` 即返回）。终端 A
+出现 `[MULTI-SOURCE] 多源业务接入已启动` 公告并开始转发上云；fire 报文约
+10s 一条（`--duration 12` 可见两条）。直发模式下另见短波短信约 20s 一条
+（`[BAOTONG-V2][SEND]`，时延 `EDGE_SW_DELAY_S`）。有火情演练加 `--fire true`。
 
 ## 步骤 4 边缘网关服务日志查询（query_service_log）
 
@@ -268,7 +271,7 @@ EDGE_LOG=../edge/gateway.log ../edge/trust_access_calculate.sh
 | 手册步骤 | `run_2_2_4_production.sh` 对应段 |
 |---|---|
 | 步骤 0 | 1 启动边缘网关（内含会话复位）/ 2 打开转发通道 |
-| 步骤 1 | 3 开闸前三终端并发发送 |
+| 步骤 1 | 3 开闸前单终端依次启动三路业务 |
 | 步骤 2 | 4 多源接入门打开 |
 | 步骤 3 | 5 开闸后再发 + 火情上报 |
 | 步骤 4 | 6 边缘网关服务日志 |
