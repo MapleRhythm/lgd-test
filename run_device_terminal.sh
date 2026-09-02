@@ -107,6 +107,9 @@ case "$ROLE" in
     printf '    ./keep_transfer.sh --duration 600 --interval 1\n'
     printf '    ./multi_link_bandwidth.sh --duration 5\n'
     printf '\n'
+    printf '  风速模拟（独立风速设备 DEV-001，白名单在册，Wi-Fi/蓝牙/有线轮换）:\n'
+    printf '    ./start_wind_data.sh\n'
+    printf '\n'
     printf '  exit the prompt to close the env monitor terminal\n\n'
     PS1='env> ' bash --noprofile --norc -i
     ;;

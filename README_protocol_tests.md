@@ -231,6 +231,13 @@ fire 业务报文（同一设备身份、有线接入），载荷为 `"fire": "f
 ./fire_alarm.sh          # 只查看当前火情状态
 ```
 
+风速模拟（环境监测终端）：`./start_wind_data.sh` 以独立风速设备 DEV-001
+（`PROTOCOL_TEST_DEVICE_WIND` 可覆盖）持续发送 windspeed 读数（sensor 业务，
+Wi-Fi/蓝牙/有线轮换接入，Ctrl-C 停止）。DEV-001 已内置在本地中转的白名单
+（whitelist.json）；如需追加其他设备，在云端或边缘终端执行
+`./whitelist_add_device.sh <设备ID>`——GET→合并→POST 改写本地中转并持久化，
+边缘网关按拉取周期（默认 30s）同步新名单；**远端生产中转只读，该命令一律拒绝**。
+
 ```bash
 ./start_video_stream.sh           # 视频流终端（持续发送，Ctrl-C 停止）
 ./start_sensor_data.sh            # 传感器终端（持续发送；过滤生效后自动变为非法设备）

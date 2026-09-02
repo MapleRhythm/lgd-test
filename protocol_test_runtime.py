@@ -94,13 +94,15 @@ DEMO_DEVICE_IDS = {
     "fire": os.getenv("PROTOCOL_TEST_DEVICE_FIRE", "EA1D2801"),
     "control": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL", "EA1D2801"),
     "control-alarm": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL_ALARM", "EA1D2801"),
+    # 独立风速设备（环境监测终端模拟 windspeed 读数用，白名单在册）。
+    "wind": os.getenv("PROTOCOL_TEST_DEVICE_WIND", "DEV-001"),
 }
 # 火情上报周期：火情由视频流终端上报（同一设备身份、有线接入），
 # start_video_stream 期间每 10s 附带一条 fire 报文，载荷布尔随 fire_alarm。
 FIRE_REPORT_INTERVAL = 10.0
-# 服务器白名单内的借用设备（与远端中转分发的名单一致）。固定为这四个 ID：
+# 服务器白名单内的借用设备（与本地中转分发的名单一致）。固定为这五个 ID：
 # 传感器终端的非法设备身份只用于发送，绝不能混进本地白名单。
-DEFAULT_WHITELIST = ["182D48D7", "3C15DB07", "990E261B", "EA1D2801"]
+DEFAULT_WHITELIST = ["182D48D7", "3C15DB07", "990E261B", "EA1D2801", "DEV-001"]
 
 _REMOTE_WHITELIST_CACHE = {"at": 0.0, "devices": None}
 
@@ -1425,8 +1427,12 @@ def source_command(args, source_kind: str) -> int:
         "video": (DEMO_DEVICE_IDS["video"], ("wired",)),
         "sensor": (DEMO_DEVICE_IDS["sensor"], ("wifi",)),
         "env": (DEMO_DEVICE_IDS["env"], ("wifi", "bluetooth", "wired")),
+        # 风速模拟（独立风速设备 DEV-001）：业务走 sensor（windspeed 读数），
+        # 在环境监测终端发送，链路随 env 轮换；不随名单过滤换 ID。
+        "wind": (DEMO_DEVICE_IDS["wind"], ("wifi", "bluetooth", "wired")),
     }
     base_device_id, links = defaults[source_kind]
+    biz_type = "sensor" if source_kind == "wind" else source_kind
 
     def current_device_id():
         # 大纲 2.2.4 可信接入：trust_access_add_whitelist 执行（过滤生效）后，
@@ -1456,7 +1462,7 @@ def source_command(args, source_kind: str) -> int:
     def producer(index):
         link_id = links[index % len(links)]
         device_id = current_device_id()
-        result = emit_message(device_id, source_kind, link_id, transport="TCP")
+        result = emit_message(device_id, biz_type, link_id, transport="TCP")
         results.append(result)
         if source_kind == "video" and os.getenv("PROTOCOL_TEST_LIVE_MEDIA", "0") == "1":
             send_live_media(build_payload(device_id, source_kind, link_id))
@@ -1671,6 +1677,49 @@ def cmd_whitelist_add(args) -> int:
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
     log_control("whitelist_filter_enable")
+    return 0
+
+
+def cmd_whitelist_add_device(args) -> int:
+    """向中转的白名单 API 追加设备：GET 当前名单 -> 合并 -> POST 全量替换。
+
+    original/server_v8.py 的白名单 HTTP（默认 11502）：GET 返回当前名单，
+    POST {"devices":[...]} 全量替换并持久化到中转工作目录的 whitelist.json。
+    只允许本地演示中转——远端 47.99.47.169 是生产环境（只读），一律拒绝。
+    """
+    url = os.getenv("PROTOCOL_TEST_WHITELIST_URL", "").strip() or \
+        "http://{}:{}/whitelist".format(
+            os.environ.get("PROTOCOL_TEST_RELAY_HOST", "127.0.0.1"),
+            os.environ.get("PROTOCOL_TEST_WHITELIST_PORT", "11502"))
+    if not (url.startswith("http://127.") or url.startswith("http://localhost")):
+        warn_red("远端中转为生产环境（只读），拒绝改写服务器白名单")
+        return 2
+    title("WHITELIST DEVICE ADD")
+    try:
+        with urllib.request.urlopen(url, timeout=2.0) as resp:
+            current = [str(item) for item in json.loads(resp.read().decode("utf-8", "replace")).get("devices", [])]
+    except (OSError, ValueError) as exc:
+        error("whitelist server unreachable ({}): {}".format(url, exc))
+        return 1
+    merged = list(dict.fromkeys(current + [str(item) for item in args.device_ids]))
+    added = [item for item in merged if item not in current]
+    if not added:
+        table(("Device ID", "状态"), [(device_id, "已在册") for device_id in args.device_ids])
+        ok("白名单无变化（{} 台设备在册）".format(len(merged)))
+        return 0
+    request = urllib.request.Request(
+        url, data=json.dumps({"devices": merged}).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=2.0) as resp:
+            json.loads(resp.read().decode("utf-8", "replace"))
+    except (OSError, ValueError) as exc:
+        error("whitelist update failed ({}): {}".format(url, exc))
+        return 1
+    log_control("whitelist_add_device", url=url, added=added, devices=merged)
+    table(("Device ID", "状态"), [(device_id, "新增在册" if device_id in added else "已在册") for device_id in merged])
+    info("中转已持久化到 whitelist.json；边缘网关按拉取周期（默认 30s）同步新名单")
+    ok("白名单已更新：{} -> {} 台设备".format(len(current), len(merged)))
     return 0
 
 
@@ -2070,14 +2119,21 @@ def build_parser():
     item.add_argument("--json", action="store_true")
     item.set_defaults(function=cmd_query_link_data)
 
-    for command, source_kind in (("start-video", "video"), ("start-sensor", "sensor"), ("start-env", "env")):
+    for command, source_kind in (("start-video", "video"), ("start-sensor", "sensor"), ("start-env", "env"),
+                                 ("start-wind", "wind")):
         item = sub.add_parser(command)
         # 大纲 2.2.4：三个端侧 start 命令默认持续发送（每秒一条），Ctrl-C 停止。
+        # start-wind 为风速模拟（DEV-001，sensor 业务），同样持续发送。
         add_common_loop_options(item, count=None, duration=None, interval=1.0)
         if source_kind == "video":
             # 视频流终端随流每 10s 上报一条火情；--no-fire-report 仅诊断时关闭。
             item.add_argument("--no-fire-report", dest="no_fire_report", action="store_true")
         item.set_defaults(function=lambda args, source_kind=source_kind: source_command(args, source_kind))
+
+    item = sub.add_parser("whitelist-add-device")
+    # 向本地中转白名单追加设备（GET->合并->POST；生产中转只读一律拒绝）。
+    item.add_argument("device_ids", nargs="+")
+    item.set_defaults(function=cmd_whitelist_add_device)
 
     item = sub.add_parser("fire-alarm")
     # 火情标志切换：视频流终端每 10s 一条 fire 报文（false=无火情 / true=有火情）。
