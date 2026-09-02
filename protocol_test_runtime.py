@@ -264,26 +264,24 @@ def _read_state_file() -> dict:
 def load_state() -> dict:
     try:
         return _read_state_file()
-    except FileNotFoundError:
-        return default_state()
-    except json.JSONDecodeError:
-        # /mnt 下偶发残缺读回（替换瞬间读到空/半截文件）。绝不能静默回退
-        # default_state：那会把 next_msg_id 拉回 1（msg_id 重复）并把上行
-        # 链路全部置离线，且随即被写回、毁掉整个会话状态。稍候重读；
-        # 仍坏则显式报错——宁可这一条命令失败，也不悄悄复位状态。
+    except (FileNotFoundError, json.JSONDecodeError):
+        # /mnt（9p/drvfs）在 os.replace 瞬间可能短暂返回 ENOENT 或空/半截
+        # 内容。绝不能立刻静默回退 default_state：那会把 next_msg_id 拉回 1
+        # （msg_id 重复）并把上行链路全部置离线，且随即被写回、毁掉整个
+        # 会话状态。稍候重读再判定：稳定缺席=全新会话，仍在但读坏=损坏。
         for _attempt in range(3):
             time.sleep(0.05)
             try:
                 return _read_state_file()
-            except FileNotFoundError:
-                return default_state()
-            except json.JSONDecodeError:
+            except (FileNotFoundError, json.JSONDecodeError):
                 continue
-        raise RuntimeError(
-            "state file {} is corrupted (partial read?); refusing to reset "
-            "counters/links silently -- stop the senders and retry, or run "
-            "init_link_connect.sh --reset to start a fresh session".format(STATE_FILE)
-        )
+    if not STATE_FILE.exists():
+        return default_state()
+    raise RuntimeError(
+        "state file {} is unreadable (partial read?); refusing to reset "
+        "counters/links silently -- stop the senders and retry, or run "
+        "init_link_connect.sh --reset to start a fresh session".format(STATE_FILE)
+    )
 
 
 def save_state(state: dict) -> None:
