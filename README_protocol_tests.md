@@ -238,6 +238,48 @@ Wi-Fi/蓝牙/有线轮换接入，Ctrl-C 停止）。DEV-001 已内置在本地�
 `./whitelist_add_device.sh <设备ID>`——GET→合并→POST 改写本地中转并持久化，
 边缘网关按拉取周期（默认 30s）同步新名单；**远端生产中转只读，该命令一律拒绝**。
 
+### 2.2.4 真机步骤（逐条）
+
+前置沿用 2.2.3 的前序操作（同一拓扑、同一服务拉起顺序）。边缘终端先落
+2.2.4 前置（与 2.2.3 不同：接入门保持关闭、转发门先开——云端一致性核对
+需要）：
+
+```bash
+./init_link_connect.sh --reset   # 会话复位：清台账并关三扇门
+./edge_forward.sh --start        # 2.2.4 前提：转发常开（此后受理的报文即上云）
+```
+
+跨机约束同 2.2.3：门命令的标记文件写在执行机本地，`multi_source_access`/
+`trust_access_*` 必须在**边缘机**上执行；端侧板只跑发送类命令。设备板起
+三个终端（同一块板、三个进程，`run_device_terminal.sh` 默认即真发
+`PROTOCOL_TEST_LIVE=1`；video 终端默认开真实媒体口 → 边缘 7777，每 10s
+附带火情上报）：
+
+```bash
+DEVICE_GATEWAY_HOST=192.168.4.1 DEVICE_MEDIA_HOST=192.168.4.1 \
+PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh video
+DEVICE_GATEWAY_HOST=192.168.4.1 PROTOCOL_TEST_RELAY_HOST=47.99.47.169 \
+./run_device_terminal.sh sensor
+DEVICE_GATEWAY_HOST=192.168.4.1 PROTOCOL_TEST_RELAY_HOST=47.99.47.169 \
+./run_device_terminal.sh env
+```
+
+| 步骤 | 终端 | 命令 | 预期 |
+|------|------|------|------|
+| 1 多源业务接入 | 端侧×3 | 三终端各自 `./start_video_stream.sh` / `./start_sensor_data.sh` / `./start_env_data.sh` | 持续发送、跨越开闸时点；开闸前到达的报文边缘只计 `gate_drop` 接收统计（不受理属预期） |
+| 2 多源接入门 | 边缘 | `./multi_source_access.sh` | 落 `multi_source_access.enabled`，边缘开始受理并转发上云；真网关日志出现 `[MULTI-SOURCE]` 受理公告 |
+| 3 服务日志查询 | 边缘 | `./query_service_log.sh` | 接收统计 + 业务传输日志表（本地台账）；真网关日志 tail 可见受理/转发行 |
+| 4 云端日志查询 | 边缘 | `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169 ./query_link_data.sh` | live 核对：云端最新 msg_id 与发送一致（真实云节点只读面） |
+| 5 可信接入 | 边缘 | `PROTOCOL_TEST_WHITELIST_URL=http://47.99.47.169:11502/whitelist ./trust_access_add_whitelist.sh 182D48D7 3C15DB07 ILLEGAL-SENSOR` | 只读拉取生产中转白名单并打印、逐个在册核对；执行后过滤生效 |
+| 6 非法设备发送 | 端侧 | 传感器终端继续发送（过滤生效后自动换无关 ID）；`./start_test.sh --device-id UNKNOWN-001` | 边缘拒收并计 `whitelist_drop`；真网关日志 `[WHITELIST][BLOCK] reason=not_in_whitelist` |
+| 7 可信接入统计 | 边缘 | `./trust_access_calculate.sh` | 受理/拒收统计表（本地台账）；真网关以日志 `whitelist_drop`/`gate_drop` 周期计数为准 |
+
+单终端回归 `./run_2_2_4.sh` 即同一顺序的本地版；纯真机协议（无模型台账）
+用生产包 `production/run_2_2_4_production.sh`（单机联调）或
+`production/device/run_2_2_4.sh`（设备板全流程），见 `production/README.md`。
+
+### WSL2 本地演示
+
 ```bash
 ./start_video_stream.sh           # 视频流终端（持续发送，Ctrl-C 停止）
 ./start_sensor_data.sh            # 传感器终端（持续发送；过滤生效后自动变为非法设备）
