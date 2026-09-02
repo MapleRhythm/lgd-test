@@ -12,6 +12,12 @@
   持续传输    --duration 600 --interval 1  （步骤7 keep_transfer，仅有线）
   多模态并发  --link all --duration 5      （步骤8 三链路并发吞吐）
 
+火情上报由视频流终端承担（每10s一条，无火情 false / 有火情 true）：
+  ./send_business.py --device-id 182D48D7 --biz-type fire --link wired \
+      --interval 10 --duration 600
+  --fire true 为有火情（默认 false 无火情）；报文载荷与现网一致，携带
+  fire/scene 顶层字段（不再用 windspeed）。
+
 风速来源：默认内置模拟（与现网 mock 传感器同分布，0.0~30.0 一位小数）；
 真机接真实传感器时用 --value 指定单值，或 --values-file 逐行喂入实时读数。
 
@@ -105,13 +111,14 @@ class Sender:
     """每条链路一个长连接（多模态并发时各自独立 TCP，贴近真实接入）。"""
 
     def __init__(self, host: str, port: int, device_id: str, biz_type: str,
-                 link_id: str, source: ValueSource):
+                 link_id: str, source: ValueSource, fire: str = "false"):
         self.host = host
         self.port = port
         self.device_id = device_id
         self.biz_type = biz_type
         self.link_id = link_id
         self.source = source
+        self.fire = fire
         self.sent = 0
         self.bytes_sent = 0
         self.last_msg_id = ""
@@ -136,9 +143,15 @@ class Sender:
             "packet_type": "alarm" if self.biz_type in ("fire", "control-alarm") else self.biz_type,
             "gateway": "gateway_1",
             "edge_gateway": "gateway_1",
-            "windspeed": self.source.windspeed(),
-            "data_source": "device-sender",
         }
+        if self.biz_type in ("fire", "control-alarm"):
+            # 火情布尔载荷（与现网 mock_fire_sensor / 边缘短波分支一致）：
+            # --fire true 为有火情，默认 false 无火情。
+            message["fire"] = self.fire
+            message["scene"] = str(random.randint(1, 5))
+        else:
+            message["windspeed"] = self.source.windspeed()
+        message["data_source"] = "device-sender"
         data = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
         for attempt in (0, 1):
             try:
@@ -163,7 +176,8 @@ class Sender:
 
 def run_single(args) -> int:
     source = ValueSource(args.value, args.values_file)
-    sender = Sender(args.host, args.port, args.device_id, args.biz_type, args.link, source)
+    sender = Sender(args.host, args.port, args.device_id, args.biz_type, args.link, source,
+                    fire=args.fire)
     sock = None
     deadline = time.monotonic() + args.duration if args.duration else None
     failures = 0
@@ -182,8 +196,10 @@ def run_single(args) -> int:
                     break
                 time.sleep(1.0)
                 continue
-            print("[SEND] link=%s msg_id=%s bytes=%d windspeed=%s" %
-                  (args.link, sender.last_msg_id, size, source.fixed or "sim"))
+            detail = ("fire=%s" % sender.fire if args.biz_type in ("fire", "control-alarm")
+                      else "windspeed=%s" % (source.fixed or "sim"))
+            print("[SEND] link=%s msg_id=%s bytes=%d %s" %
+                  (args.link, sender.last_msg_id, size, detail))
             if args.interval > 0 and not (args.count and sender.sent >= args.count):
                 if deadline:
                     remaining = deadline - time.monotonic()
@@ -204,7 +220,8 @@ def run_single(args) -> int:
 def run_multi(args) -> int:
     """三模态并发（步骤8）：wifi/bluetooth/wired 各自独立连接同时发送。"""
     source = ValueSource(args.value, args.values_file)
-    senders = {link: Sender(args.host, args.port, args.device_id, args.biz_type, link, source)
+    senders = {link: Sender(args.host, args.port, args.device_id, args.biz_type, link, source,
+                             fire=args.fire)
                for link in LINKS}
     started = time.monotonic()
 
@@ -251,6 +268,8 @@ def main() -> int:
     parser.add_argument("--interval", type=float, default=1.0, help="发送间隔秒（默认 1.0）")
     parser.add_argument("--value", default=None, help="固定业务读数（真实传感器单值）")
     parser.add_argument("--values-file", default=None, help="业务读数文件，逐行喂入（真实传感器流）")
+    parser.add_argument("--fire", choices=("true", "false"), default="false",
+                        help="火情布尔载荷（fire 业务；默认 false 无火情，true=有火情）")
     args = parser.parse_args()
 
     if args.link == "all":

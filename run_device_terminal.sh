@@ -5,7 +5,7 @@ set -Eeuo pipefail
 #
 # 大纲 2.2.4 的多源接入需要三个端侧终端（同一目录、同一状态区，各自独立
 # TCP 长连接到边缘网关，状态写入与 msg_id 分配均有跨进程锁）：
-#   ./run_device_terminal.sh video    视频流终端        182D48D7  有线
+#   ./run_device_terminal.sh video    视频流终端        182D48D7  有线（每10s附带火情上报）
 #   ./run_device_terminal.sh sensor   传感器终端        3C15DB07  Wi-Fi（名单过滤生效后自动换无关 ID）
 #   ./run_device_terminal.sh env      环境监测模块终端  990E261B  Wi-Fi/蓝牙/有线（轮换）
 # 不带参数 = 原有通用端侧终端。
@@ -53,10 +53,13 @@ case "$ROLE" in
       "$PROTOCOL_TEST_GATEWAY_HOST" "$PROTOCOL_TEST_GATEWAY_PORT" \
       "$PROTOCOL_TEST_MEDIA_HOST" "$PROTOCOL_TEST_MEDIA_PORT"
     printf '  link      : 有线\n'
+    printf '  fire      : 每10s一条火情上报（随 start_video_stream 自动发送，无火情=false）\n'
     printf '\n'
     printf '  available commands:\n'
     printf '    ./start_video_stream.sh\n'
     printf '    ./start_video_stream.sh --duration 30 --interval 1\n'
+    printf '    ./fire_alarm.sh --on        # 触发火情：后续火情上报载荷变为 true\n'
+    printf '    ./fire_alarm.sh --off       # 解除火情：恢复 false\n'
     printf '\n'
     printf '  持续发送至 Ctrl-C 停止；边缘网关受理前需先执行 ./multi_source_access.sh\n'
     printf '\n'

@@ -205,7 +205,7 @@ Use a short duration while checking the workflow, for example
 各自独立 TCP 长连接；状态写入与 msg_id 分配均有跨进程锁）：
 
 ```bash
-./run_device_terminal.sh video    # 视频流终端 182D48D7（有线，含真实媒体口 7777）
+./run_device_terminal.sh video    # 视频流终端 182D48D7（有线，含真实媒体口 7777；每10s附带火情上报）
 ./run_device_terminal.sh sensor   # 传感器终端 3C15DB07（Wi-Fi；名单过滤生效后自动换无关 ID）
 ./run_device_terminal.sh env      # 环境监测模块终端 990E261B（Wi-Fi/蓝牙/有线轮换）
 ```
@@ -217,6 +217,16 @@ VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信�
 **不过滤名单**（全部放行），`./trust_access_add_whitelist.sh` 从服务器拉取白名单
 并打印后过滤生效，传感器终端发送端逐报文自动切换为无关设备 ID
 （ILLEGAL-SENSOR），被边缘拒收（`whitelist_drop`）并记阻断日志。
+
+火情由**视频流终端**上报：`start_video_stream` 持续发送期间每 10 秒附带一条
+fire 业务报文（同一设备身份、有线接入），载荷为 `"fire": "false"`（无火情）；
+下列命令只切换火情标志，下一条上报即变为 `"fire": "true"`（有火情）：
+
+```bash
+./fire_alarm.sh --on     # 触发火情：视频流终端后续火情上报载荷为 true
+./fire_alarm.sh --off    # 解除火情：恢复 false
+./fire_alarm.sh          # 只查看当前火情状态
+```
 
 ```bash
 ./start_video_stream.sh           # 视频流终端（持续发送，Ctrl-C 停止）
@@ -262,7 +272,8 @@ edge_online=False，核心随即判定边缘离线）、向边缘网关发送 5G
 fire/windspeed **按次轮换**应答（一条短信只装一种；"关键传感器数据"
 即风速数据）——本地模型在 route.jsonl 记 `shortwave_answer/
 shortwave_next` 明细，`start_uplink_transfer` 表格下方提示轮换，真网关
-终端打印 [BAOTONG-V2][OFFLINE-ROTATE]。`link-monitor.sh` 保持纯监测：
+终端打印 [BAOTONG-V2][OFFLINE-ROTATE]。fire 报文载荷跟随 `./fire_alarm.sh`
+的火情标志（false/true，不再随机）。`link-monitor.sh` 保持纯监测：
 加罩后在边缘终端执行即可看到 5G BELOW THRESHOLD 与降级路由
 （`--low/--normal` 仍可手动置位本地模型，不再下发任何服务器指令）。
 远端生产中转（47.99.47.169）只读，link_block 一律不下发，仅模型生效。

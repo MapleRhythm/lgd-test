@@ -78,6 +78,15 @@ python3 send_business.py --value 17.3 --count 1          # 真实传感器单值
 python3 send_business.py --values-file ws.txt --duration 60   # 逐行喂入实时读数
 ```
 
+火情上报由**视频流终端**承担（每10s一条，无火情 false / 有火情 true）：
+
+```bash
+python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired \
+    --interval 10 --duration 600          # 视频流终端火情上报（默认 false）
+python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired \
+    --count 1 --fire true                 # 有火情单条（--fire 切换布尔载荷）
+```
+
 发送审计：`device/.state/sent.jsonl`（每条报文全量），`counters.json` 保证
 msg_id/event_id 跨运行连续，可与中转 STAT 计数对账。
 

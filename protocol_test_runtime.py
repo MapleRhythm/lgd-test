@@ -95,6 +95,9 @@ DEMO_DEVICE_IDS = {
     "control": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL", "EA1D2801"),
     "control-alarm": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL_ALARM", "EA1D2801"),
 }
+# 火情上报周期：火情由视频流终端上报（同一设备身份、有线接入），
+# start_video_stream 期间每 10s 附带一条 fire 报文，载荷布尔随 fire_alarm。
+FIRE_REPORT_INTERVAL = 10.0
 # 服务器白名单内的借用设备（与远端中转分发的名单一致）。固定为这四个 ID：
 # 传感器终端的非法设备身份只用于发送，绝不能混进本地白名单。
 DEFAULT_WHITELIST = ["182D48D7", "3C15DB07", "990E261B", "EA1D2801"]
@@ -181,6 +184,8 @@ STATUS_COLOURS = {
     "AVAILABLE": "green", "5G AVAILABLE": "green", "normal": "green",
     "BELOW THRESHOLD": "red", "5G BELOW THRESHOLD": "red", "degraded": "red",
     "5g_below_threshold": "red", "no_available_route": "red",
+    # 火情上报字：有火情红、无火情绿。
+    "true": "red", "false": "green", "有火情": "red", "无火情": "green",
 }
 
 
@@ -254,6 +259,10 @@ def default_state() -> dict:
         # 真网关离线轮换游标（gateway_merged.py 离线分支）：5G 断开时
         # gateway_1 的短波应答在 fire 与 windspeed 间按次轮换。
         "shortwave_rotate": {"next": "fire"},
+        # 火情标志：false=无火情，true=有火情。火情由视频流终端上报——
+        # start_video_stream 期间每 10s 一条 fire 报文，载荷布尔跟随本标志
+        # （fire-alarm 命令切换）。
+        "fire_alarm": False,
     }
 
 
@@ -396,8 +405,12 @@ def simulate_readings(biz_type: str) -> dict:
             "data_source": "mock_wind_sensor",
         }
     if biz_type in ("fire", "control-alarm"):
+        # 火情布尔不随机：跟随会话 fire_alarm 标志（无火情 false / 有火情
+        # true），视频流终端每 10s 上报一条；真值字符串与 mock_fire_sensor
+        # 及边缘短波分支的解析一致。
+        fire_on = bool(load_state().get("fire_alarm"))
         return {
-            "fire": random.choice(["true", "false"]),
+            "fire": "true" if fire_on else "false",
             "scene": str(random.randint(1, 5)),
             "data_source": "mock_fire_sensor",
         }
@@ -1425,6 +1438,21 @@ def source_command(args, source_kind: str) -> int:
         return args.device_id or base_device_id
 
     results = []
+    fire_results = []
+    fire_stop = threading.Event()
+    fire_thread = None
+    if source_kind == "video" and not getattr(args, "no_fire_report", False):
+        # 火情由视频流终端上报：随视频流每 10s 一条 fire 报文，载荷布尔
+        # 跟随会话 fire_alarm 标志（无火情 false / 有火情 true，fire-alarm
+        # 命令切换），与视频共用同一设备身份与有线接入链路。
+        def fire_reporter():
+            while not fire_stop.is_set():
+                fire_results.append(emit_message(current_device_id(), "fire", "wired", transport="TCP"))
+                fire_stop.wait(FIRE_REPORT_INTERVAL)
+
+        fire_thread = threading.Thread(target=fire_reporter, name="fire-report", daemon=True)
+        fire_thread.start()
+
     def producer(index):
         link_id = links[index % len(links)]
         device_id = current_device_id()
@@ -1433,12 +1461,47 @@ def source_command(args, source_kind: str) -> int:
         if source_kind == "video" and os.getenv("PROTOCOL_TEST_LIVE_MEDIA", "0") == "1":
             send_live_media(build_payload(device_id, source_kind, link_id))
     count = run_loop(args, producer)
+    if fire_thread is not None:
+        fire_stop.set()
+        fire_thread.join(timeout=FIRE_REPORT_INTERVAL + 1.0)
     used_ids = []
     for result in results:
         if result["device_id"] not in used_ids:
             used_ids.append(result["device_id"])
     table(("Source", "Device", "Packets", "Accepted", "Forwarded"), [(source_kind, " -> ".join(used_ids), count, sum(1 for r in results if r["accepted"]), sum(len(r.get("forwarded", [])) for r in results))])
+    if fire_results:
+        fire_true = sum(1 for r in fire_results if (r.get("message") or {}).get("fire") == "true")
+        info("火情上报 {} 条（fire=true {} / fire=false {}）：视频流终端每 {}s 一条，"
+             "载荷随 ./fire_alarm.sh --on / --off 切换".format(
+                 len(fire_results), fire_true, len(fire_results) - fire_true, int(FIRE_REPORT_INTERVAL)))
     ok("{} source data generation completed".format(source_kind))
+    return 0
+
+
+def cmd_fire_alarm(args) -> int:
+    title("FIRE ALARM STATE")
+    if args.on and args.off:
+        warn("--on 与 --off 不能同时指定")
+        return 2
+    if args.on or args.off:
+        fire_on = bool(args.on)
+
+        def update(state):
+            state["fire_alarm"] = fire_on
+
+        mutate_state(update)
+        log_control("fire_alarm", fire=fire_on)
+    else:
+        fire_on = bool(snapshot_state().get("fire_alarm"))
+    table(("Item", "Value"), [
+        ("火情状态", "有火情" if fire_on else "无火情"),
+        ("fire 报文载荷", '"fire": "{}"'.format("true" if fire_on else "false")),
+        ("上报终端", "视频流终端 {}（每10s一条，随 start_video_stream）".format(DEMO_DEVICE_IDS["video"])),
+    ])
+    if fire_on:
+        warn_red("火情已触发：视频流终端后续 fire 上报载荷为 true")
+    else:
+        ok("无火情：视频流终端每10s上报 fire=false")
     return 0
 
 
@@ -1524,8 +1587,9 @@ def cmd_query_cloud_log(args) -> int:
     records = [item for item in records if keep(item)]
     rows = [(item.get("device_id", ""), item.get("biz_type", ""), item.get("msg_id", ""), item.get("link_id", ""), item.get("classification", ""), item.get("parse_status", "")) for item in records[-args.limit:]]
     table(("Device", "Business", "Message", "Link", "Class", "Parse"), rows or [("-", "-", "-", "-", "-", "no records")])
-    if not args.verify:
+    if not getattr(args, "verify", False):
         # 默认不直接显示核对表：需要云端-边缘一致性核对时显式加 --verify。
+        # cloud-query 无此旗标、经 fall-through 复用本函数时同样只显示日志表。
         return 0
     # Outline 2.2.4 closing step: under the same device-type/time filters,
     # reconcile the cloud-side records against the edge gateway's local
@@ -2010,7 +2074,16 @@ def build_parser():
         item = sub.add_parser(command)
         # 大纲 2.2.4：三个端侧 start 命令默认持续发送（每秒一条），Ctrl-C 停止。
         add_common_loop_options(item, count=None, duration=None, interval=1.0)
+        if source_kind == "video":
+            # 视频流终端随流每 10s 上报一条火情；--no-fire-report 仅诊断时关闭。
+            item.add_argument("--no-fire-report", dest="no_fire_report", action="store_true")
         item.set_defaults(function=lambda args, source_kind=source_kind: source_command(args, source_kind))
+
+    item = sub.add_parser("fire-alarm")
+    # 火情标志切换：视频流终端每 10s 一条 fire 报文（false=无火情 / true=有火情）。
+    item.add_argument("--on", action="store_true")
+    item.add_argument("--off", action="store_true")
+    item.set_defaults(function=cmd_fire_alarm)
 
     item = sub.add_parser("multi-source-access")
     item.add_argument("--limit", type=int, default=100)
