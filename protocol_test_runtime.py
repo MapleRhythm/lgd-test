@@ -188,6 +188,8 @@ STATUS_COLOURS = {
     "5g_below_threshold": "red", "no_available_route": "red",
     # 火情上报字：有火情红、无火情绿。
     "true": "red", "false": "green", "有火情": "red", "无火情": "green",
+    # 链路切换方向：5G 断开切换红、恢复回切绿。
+    "5G -> Shortwave": "red", "Shortwave -> 5G": "green",
 }
 
 
@@ -1779,6 +1781,20 @@ def route_rows(records, biz_types=None):
     return result
 
 
+def link_switch_change(record) -> str:
+    """链路切换事件的主用链路流向（大纲 2.2.5 条目3 语义）。
+
+    5G 低于阈值（degraded）：宽带业务由 5G 切至短波，卫星链路传输内容
+    不变，告警/控制与关键传感器持续传输不中断；恢复（normal）回切 5G。
+    """
+    if record.get("action") in {"link_status", "link_monitor"}:
+        if record.get("mode") == "degraded":
+            return "5G -> Shortwave"
+        if record.get("mode") == "normal":
+            return "Shortwave -> 5G"
+    return "-"
+
+
 def cmd_edge_query(args) -> int:
     if args.device_id:
         title("EDGE TRACE: {}".format(args.device_id))
@@ -1789,7 +1805,9 @@ def cmd_edge_query(args) -> int:
     if args.route_switch:
         title("EDGE ROUTE SWITCH LOG")
         records = [item for item in read_records("control.jsonl") if item.get("action") in {"link_status", "link_monitor", "policy_route_start", "policy_route_stop"}]
-        table(("Time", "Action", "Mode"), [(item.get("timestamp", ""), item.get("action", ""), item.get("mode", "-")) for item in records[-args.limit:]] or [("-", "-", "no records")])
+        rows = [(item.get("timestamp", ""), item.get("action", ""), item.get("mode", "-"), link_switch_change(item)) for item in records[-args.limit:]]
+        table(("Time", "Action", "Mode", "Switch"), rows or [("-", "-", "-", "no records")])
+        info("切换流向：5G 低于阈值→宽带业务 5G 切至短波（卫星不变，告警/控制与关键传感器持续）；恢复→回切 5G")
         return 0
     title("EDGE ROUTE DECISIONS")
     rows = route_rows(read_records("route.jsonl"), split_values(args.biz_type) if args.biz_type else None)
@@ -1840,7 +1858,9 @@ def cmd_cloud_query(args) -> int:
     if args.link_switch:
         title("CLOUD LINK SWITCH LOG")
         records = [item for item in read_records("control.jsonl") if item.get("action") == "link_status"]
-        table(("Time", "Mode"), [(item.get("timestamp", ""), item.get("mode", "")) for item in records[-args.limit:]] or [("-", "no records")])
+        rows = [(item.get("timestamp", ""), item.get("mode", ""), link_switch_change(item)) for item in records[-args.limit:]]
+        table(("Time", "Mode", "Switch"), rows or [("-", "-", "no records")])
+        info("切换流向：5G 低于阈值→宽带业务 5G 切至短波（卫星不变，告警/控制与关键传感器持续）；恢复→回切 5G")
         return 0
     if args.biz_type and not args.device_type:
         args.device_type = args.biz_type
