@@ -171,7 +171,7 @@ MONITOR_RTT_PROFILES_MS = {
 MONITOR_LOSS_PROBABILITY = {
     "wired": 0.0,
     "wifi": 0.0,
-    "bluetooth": 0.01,
+    "bluetooth": 0.0,
 }
 MONITOR_STATE_LABELS = {"UP": "正常", "DOWN": "中断"}
 _MONITOR_NO_COLOUR = bool(os.environ.get("NO_COLOR"))
