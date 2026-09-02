@@ -126,6 +126,30 @@ export EDGE_HOST=<边缘网关IP>          # 默认 127.0.0.1
 8. **`edge/trust_access_calculate.sh`**：从网关日志统计门状态公告、拒收明细
    与 `whitelist_drop`/`gate_drop` 周期计数（只看计数与设备 ID，不看业务内容）。
 
+### 2.2.4 直发模式（短波/卫星联调）
+
+现网短波是主站轮询架构（发送由核心网关呼叫触发）、卫星走 400-GM12 串口；
+联调环境没有电台呼叫与卫星串口，2.2.4 以**直发模式**运行——边缘网关把
+短波/卫星报文复用统一上行通道直发核心网关，并按信道时延节奏发送：
+
+```bash
+cd edge
+EDGE_RADIO_OVER_5G=1 ./run_gateway.sh      # 2.2.4 联调直发模式启动
+# 时延可调：EDGE_SW_DELAY_S=20（短波）/ EDGE_SAT_DELAY_S=120（卫星）
+```
+
+- **短波**：`fire`/`windspeed` 报文受理后，约 `EDGE_SW_DELAY_S`（默认 20s）
+  发一条最新业务短信（同一时刻仅一条在信道上，新数据随下一轮带出）；
+  控制台打印与现网一致的 `[BAOTONG-V2][SEND] peer=<电台地址>`，
+  计数进周期统计行 `shortwave=`。
+- **卫星**：无串口依赖，网关周期入队身份报文（`[SATELLITE][SEND][QUEUED]`），
+  经 `EDGE_SAT_DELAY_S`（默认 120s）星上时延后送达云端卫星接收页面
+  （核心侧卫星页面可见；报文 timestamp 与落地时刻之差即星上时延）。
+- 默认**关闭**：不设置 `EDGE_RADIO_OVER_5G` 时短波仍为主站轮询、卫星仍走
+  串口（2.2.3 流程不受影响）。单机联调 `run_2_2_4_production.sh` 自动启用
+  （卫星周期 `EDGE_SATELLITE_INTERVAL` 默认 150s），并在末尾等待首帧卫星
+  落地后再收尾（`SAT_LAND_WAIT=0` 跳过等待）。
+
 ## 端到端验证（生产只读）
 
 ```bash
@@ -152,7 +176,9 @@ live 查询表（演示版 query_link_data 的下半张表）在生产包中没�
 将发往生产中转**（借用白名单设备 ID）——`RELAY_HOST` 可指向测试中转。
 2.2.3 的 `KEEP_DURATION` 默认 60（大纲值 600，联调可调）；2.2.4 的轮次时长
 `SOURCE_DURATION`（开闸前，默认 5）/ `POST_DURATION`（开闸后，默认 12，
-火情两条可见 10s 节奏）/ `ILLEGAL_COUNT`（默认 5）同理可调。
+火情两条可见 10s 节奏）/ `ILLEGAL_COUNT`（默认 5）同理可调；2.2.4 直发
+模式的时延 `EDGE_SW_DELAY_S`（短波，默认 20）/ `EDGE_SAT_DELAY_S`
+（卫星，默认 120）与末尾落地等待 `SAT_LAND_WAIT`（默认 1，0 跳过）亦可覆盖。
 
 ## 与演示版（final/ 根目录）的差异
 

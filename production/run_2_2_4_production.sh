@@ -9,6 +9,12 @@
 #
 # 端口默认 18888/17777/19118，与演示三终端（8888/7777/19100）完全错开；
 # 若仍被占用（本脚本启动前检测）会直接退出，绝不自动清理他人进程。
+#
+# 2.2.4 联调直发模式（EDGE_RADIO_OVER_5G=1，仅本流程启用，2.2.3 不设置）：
+# 短波/卫星报文不经电台/卫星模块，复用统一上行通道直发核心网关——短波
+# 时延 EDGE_SW_DELAY_S（默认 20s）、卫星时延 EDGE_SAT_DELAY_S（默认 120s）；
+# 网关控制台仍按电台/卫星口径打印（[BAOTONG-V2][SEND] / [SATELLITE][*]），
+# 不体现实际承载。
 set -Eeuo pipefail
 
 PROD_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +34,11 @@ SOURCE_DURATION="${SOURCE_DURATION:-5}"
 POST_DURATION="${POST_DURATION:-12}"
 FIRE_INTERVAL="${FIRE_INTERVAL:-10}"
 ILLEGAL_COUNT="${ILLEGAL_COUNT:-5}"
+# 直发模式时延参数（秒）：短波/卫星信道时延与卫星发送周期、落地等待开关。
+SW_DELAY_S="${EDGE_SW_DELAY_S:-20}"
+SAT_DELAY_S="${EDGE_SAT_DELAY_S:-120}"
+SAT_INTERVAL="${EDGE_SATELLITE_INTERVAL:-150}"
+SAT_LAND_WAIT="${SAT_LAND_WAIT:-1}"
 STATE_DIR="$PROD_DIR/.state"
 EDGE_STATE="$PROD_DIR/edge/.state"
 GW_PID=""
@@ -103,6 +114,7 @@ for p in "$EDGE_JSON_PORT" "$EDGE_MEDIA_PORT" "$EDGE_BAOTONG_PORT"; do
 done
 echo "接入端口 $EDGE_JSON_PORT/$EDGE_MEDIA_PORT 空闲；中转目标 $RELAY_HOST:11500"
 echo "三终端设备 ID：视频 $DEVICE_VIDEO（有线）/ 传感器 $DEVICE_SENSOR（Wi-Fi）/ 环境监测 $DEVICE_ENV（轮换）"
+echo "直发模式：短波时延 ${SW_DELAY_S}s / 卫星时延 ${SAT_DELAY_S}s（卫星落地等待 SAT_LAND_WAIT=${SAT_LAND_WAIT}）"
 
 section '1  启动边缘网关（生产参数，默认不受理、不转发）'
 mkdir -p "$STATE_DIR"
@@ -113,9 +125,12 @@ EDGE_STATE_DIR="$EDGE_STATE" \
 EDGE_JSON_PORT="$EDGE_JSON_PORT" EDGE_MEDIA_PORT="$EDGE_MEDIA_PORT" \
 EDGE_BAOTONG_PORT="$EDGE_BAOTONG_PORT" EDGE_BAOTONG_HOST=127.0.0.1 \
 EDGE_CLOUD_HOST="$RELAY_HOST" \
-EDGE_DISABLE_SATELLITE=1 \
+EDGE_RADIO_OVER_5G=1 \
+EDGE_SW_DELAY_S="$SW_DELAY_S" EDGE_SAT_DELAY_S="$SAT_DELAY_S" \
+EDGE_SATELLITE_INTERVAL="$SAT_INTERVAL" \
 bash "$PROD_DIR/edge/run_gateway.sh" >"$STATE_DIR/gateway.log" 2>&1 &
 GW_PID=$!
+GW_START="$(date +%s)"
 echo "gateway pid=$GW_PID  log=$STATE_DIR/gateway.log"
 
 for i in $(seq 1 20); do
@@ -188,6 +203,25 @@ grep -F '[WHITELIST][BLOCK]' "$STATE_DIR/gateway.log" | tail -n 5 || true
 
 section '10  可信接入统计（trust_access_calculate）'
 EDGE_LOG="$STATE_DIR/gateway.log" bash "$PROD_DIR/edge/trust_access_calculate.sh"
+
+section '11  卫星报文落地等待（星上时延演示）'
+# 卫星上行带星上时延 SAT_DELAY_S（默认 120s）：网关启动即入队的第一帧
+# 在该时延后送达核心卫星接收页面。等到落地时刻再回看网关的卫星/短波
+# 上行日志；SAT_LAND_WAIT=0 可跳过等待。
+if [[ "$SAT_LAND_WAIT" != "0" ]]; then
+  remaining="$(python3 - "$GW_START" "$SAT_DELAY_S" <<'PY'
+import sys, time
+start, delay = float(sys.argv[1]), float(sys.argv[2])
+print("{:.0f}".format(max(0.0, delay + 10.0 - (time.time() - start))))
+PY
+)"
+  echo "卫星星上时延 ${SAT_DELAY_S}s：等待 ${remaining}s 至首帧落地时刻"
+  sleep "$remaining"
+fi
+echo '网关卫星上行日志（最近12条）：'
+grep -E '\[SATELLITE\]' "$STATE_DIR/gateway.log" | tail -n 12 || true
+echo '网关短波上行日志（最近4条）：'
+grep -F '[BAOTONG-V2][SEND]' "$STATE_DIR/gateway.log" | tail -n 4 || true
 
 section '完成'
 echo "清理：停止本轮发送进程与边缘网关（pid=$GW_PID）并移除接入门/转发门/过滤门标记"

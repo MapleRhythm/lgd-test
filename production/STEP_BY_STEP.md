@@ -162,6 +162,11 @@ tail -n 3 .state/sent.jsonl      # 端侧发送审计，与中转 STAT 计数对
 
 ## 步骤 0 前提：会话复位 + 打开转发通道（在边缘网关执行）
 
+> 2.2.4 需边缘网关以**直发模式**运行：若沿用 2.2.3 的网关请先 Ctrl-C，再以
+> `EDGE_RADIO_OVER_5G=1` 重启（短波/卫星报文按信道时延直发核心网关，台架
+> 参数同终端 A 一节，见 production/README.md「2.2.4 直发模式」）。真机三节点
+> 部署时网关启动命令为 `EDGE_RADIO_OVER_5G=1 ./run_gateway.sh`。
+
 ```bash
 cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/edge
 
@@ -205,7 +210,9 @@ python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --int
 ```
 
 预期：终端 A 出现 `[MULTI-SOURCE] 多源业务接入已启动` 公告并开始转发上云；
-fire 报文约 10s 一条（`--duration 12` 可见两条）。有火情演练加 `--fire true`。
+fire 报文约 10s 一条（`--duration 12` 可见两条）。直发模式下另见短波短信
+约 20s 一条（`[BAOTONG-V2][SEND]`，时延 `EDGE_SW_DELAY_S`）。有火情演练加
+`--fire true`。
 
 ## 步骤 4 边缘网关服务日志查询（query_service_log）
 
@@ -269,4 +276,5 @@ EDGE_LOG=../edge/gateway.log ../edge/trust_access_calculate.sh
 | 步骤 6 | 8 可信接入·白名单拉取并生效 |
 | 步骤 7 | 9 名单外设备发送 |
 | 步骤 8 | 10 可信接入统计 |
+| 卫星时延演示（可选） | 11 卫星报文落地等待（网关启动约 EDGE_SAT_DELAY_S 秒后首帧落地） |
 | 收尾 | EXIT trap 自动执行 |

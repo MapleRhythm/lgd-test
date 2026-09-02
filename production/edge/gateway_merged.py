@@ -1388,6 +1388,84 @@ _TRUST_ACCESS_ANNOUNCED = {"state": None}
 _TRUST_ACCESS_LOCK = threading.Lock()
 
 
+# 2.2.4 联调模式（EDGE_RADIO_OVER_5G=1，默认关闭）：短波/卫星报文不经
+# 电台/卫星模块，直接复用统一上行通道送到核心网关（短波短信进 JSON 发送
+# 队列、卫星报文 POST 到云端卫星接收口）。控制台输出保持电台/卫星口径，
+# 不体现实际承载。关闭时下面的分支全部不触发，行为与现网一致。
+_SW_OVER_5G_LOCK = threading.Lock()
+_SW_OVER_5G_PENDING = {"armed": False}
+
+
+def load_radio_over_5g_config():
+    """读取 EDGE_RADIO_OVER_5G 联调配置；未启用时返回 None。"""
+    if os.environ.get("EDGE_RADIO_OVER_5G", "").strip() != "1":
+        return None
+
+    def _seconds(name, default):
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return float(default)
+        try:
+            return float(raw)
+        except ValueError:
+            log(
+                "[EDGE][WARN] invalid {}={!r}; using default {}s".format(
+                    name, raw, default
+                ),
+                level="WARN",
+            )
+            return float(default)
+
+    return {
+        "sw_delay_s": _seconds("EDGE_SW_DELAY_S", 20.0),
+        "sat_delay_s": _seconds("EDGE_SAT_DELAY_S", 120.0),
+    }
+
+
+def _dispatch_shortwave_over_5g(baotong_server, delay_s, send_queue, counter):
+    """短波直发联调（配 EDGE_RADIO_OVER_5G）：现网为主站轮询架构，联调时
+    核心不呼叫，边缘在短波信道时延后直接把最新业务短信发往核心网关。
+    短信字节实际进入统一上行队列（JsonCloudSender），控制台只打印电台
+    口径的 [BAOTONG-V2][SEND]（peer=宝通电台地址）。同一时刻只允许一条
+    短信在信道上：在途期间新到的数据只更新缓存，随下一轮发送带出。"""
+    with _SW_OVER_5G_LOCK:
+        if _SW_OVER_5G_PENDING["armed"]:
+            return
+        _SW_OVER_5G_PENDING["armed"] = True
+
+    def _worker():
+        try:
+            time.sleep(delay_s)
+            payload = baotong_server.take_direct_payload()
+            if payload is None:
+                return
+            sms_json = json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":")
+            )
+            log(
+                "[BAOTONG-V2][SEND] peer={}:{} payload={}".format(
+                    baotong_server.host,
+                    baotong_server.port,
+                    sms_json,
+                )
+            )
+            send_queue.put(
+                {
+                    "json_data": sms_json,
+                    "slice_id": "mmtc",
+                    "queued_at": time.monotonic(),
+                }
+            )
+            counter["sent"] += 1
+        finally:
+            with _SW_OVER_5G_LOCK:
+                _SW_OVER_5G_PENDING["armed"] = False
+
+    threading.Thread(
+        target=_worker, daemon=True, name="shortwave-direct-send"
+    ).start()
+
+
 class JsonCloudSender:
     """将 8888 收到的 JSON 发送至统一云端 11500。"""
 
@@ -1534,6 +1612,7 @@ def handle_json_client(
     whitelist_filter,
     time_set_interval,
     slice_metrics=None,
+    radio_over_5g=None,
 ):
     client = "{}:{}".format(addr[0], addr[1])
     log(
@@ -1549,6 +1628,9 @@ def handle_json_client(
     received_bytes = 0
     queued_total = 0
     shortwave_total = 0
+    # 直发联调（EDGE_RADIO_OVER_5G）实际发出的短波短信计数；关闭时恒为 0，
+    # 周期统计行的 shortwave= 数值与现网一致。
+    shortwave_over_5g = {"sent": 0}
     beacon_drop_total = 0
     whitelist_drop_total = 0
     access_gate_drop_total = 0
@@ -1645,6 +1727,13 @@ def handle_json_client(
             shortwave_payload = baotong_server.on_sensor_update(payload)
             if shortwave_payload is not None:
                 shortwave_total += 1
+            if radio_over_5g is not None:
+                _dispatch_shortwave_over_5g(
+                    baotong_server,
+                    radio_over_5g["sw_delay_s"],
+                    send_queue,
+                    shortwave_over_5g,
+                )
             log(
                 "[JSON][SHORTWAVE] source={} message={} gateway={} selected={}".format(
                     client,
@@ -1758,7 +1847,7 @@ def handle_json_client(
                             received_bytes,
                             speed,
                             queued_total,
-                            shortwave_total,
+                            shortwave_total + shortwave_over_5g["sent"],
                             beacon_drop_total,
                             whitelist_drop_total,
                             access_gate_drop_total,
@@ -1803,7 +1892,7 @@ def handle_json_client(
                 received_total,
                 received_bytes,
                 queued_total,
-                shortwave_total,
+                shortwave_total + shortwave_over_5g["sent"],
                 beacon_drop_total,
                 whitelist_drop_total,
                 access_gate_drop_total,
@@ -1824,6 +1913,7 @@ def serve_json(
     whitelist_filter,
     time_set_interval,
     slice_metrics=None,
+    radio_over_5g=None,
 ):
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -1861,6 +1951,7 @@ def serve_json(
                     whitelist_filter,
                 time_set_interval,
                 slice_metrics,
+                radio_over_5g,
             ),
                 daemon=True,
                 name="json-client-{}:{}".format(addr[0], addr[1]),
@@ -3193,6 +3284,14 @@ class ProtocolBaoTongServer(threading.Thread):
             "timestamp": timestamp,
         })
 
+    def take_direct_payload(self):
+        """直发模式取一条最新业务短信（仅 EDGE_RADIO_OVER_5G 联调用）。
+
+        现网为主站轮询架构：发送由核心呼叫触发（on_radio_message）。
+        联调模式下核心不呼叫，由边缘在短波时延后自行取当前业务值发送。
+        """
+        return self._select_payload(self.callee_id)
+
     def send_exit_reset(self):
         """向当前工控机会话发送退出复位口令；无会话时静默跳过。"""
         session = self._get_session()
@@ -3629,6 +3728,9 @@ class SatelliteUplink(threading.Thread):
         reconnect_interval,
         data_type,
         query_queue,
+        over_5g=False,
+        link_delay_s=0.0,
+        ingest_url=None,
     ):
         threading.Thread.__init__(self, daemon=True, name="satellite-uplink")
         self.port = str(port or "").strip()
@@ -3639,6 +3741,11 @@ class SatelliteUplink(threading.Thread):
         self.reconnect_interval = float(reconnect_interval)
         self.data_type = int(data_type)
         self.query_queue = bool(query_queue)
+        # 2.2.4 联调（EDGE_RADIO_OVER_5G）：无串口，报文经统一上行送到云端
+        # 卫星接收口（HTTP 入库）；控制台输出与串口版完全一致。
+        self.over_5g = bool(over_5g)
+        self.link_delay_s = float(link_delay_s)
+        self.ingest_url = ingest_url
         self.serial_module = None
         self.list_ports_module = None
 
@@ -3880,7 +3987,81 @@ class SatelliteUplink(threading.Thread):
             self._query_pending_count(ser)
         return True
 
+    def _post_ingest(self, raw):
+        """把卫星帧送进云端卫星接收口（仅联调模式使用）。"""
+        request_obj = urllib.request.Request(
+            self.ingest_url,
+            data=raw,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request_obj, timeout=10) as response:
+            response.read()
+
+    def _run_over_5g(self):
+        """联调模式卫星上行：不走串口/AT 指令，帧入队日志与串口版一致，
+        报文经星上传播时延（link_delay_s）后由统一上行送达云端卫星接收口。
+        时延体现在报文 timestamp 与送达时刻之差上。"""
+        log(
+            "[SATELLITE][MAIN] uplink started configured_port={} baud={} "
+            "gateway={} interval={}s data_type={} query_queue={}".format(
+                self.port or "auto",
+                self.baudrate,
+                self.gateway_id,
+                self.interval,
+                self.data_type,
+                self.query_queue,
+            )
+        )
+        send_index = 0
+        frame_no = 0
+        while True:
+            send_index += 1
+            log("[SATELLITE][SEND] cycle={}".format(send_index))
+            payload, raw = self._build_payload()
+            log(
+                "[SATELLITE][SEND] preparing gateway identity port={} gateway={} "
+                "bytes={} payload={}".format(
+                    self.port or "auto",
+                    self.gateway_id,
+                    len(raw),
+                    raw.decode("utf-8"),
+                )
+            )
+            detail_log(
+                "[SATELLITE][SEND] payload_hex={}".format(raw.hex().upper())
+            )
+            frame_no += 1
+            log(
+                "[SATELLITE][SEND][QUEUED] gateway={} frame_no={} bytes={} "
+                "timestamp={}".format(
+                    self.gateway_id, frame_no, len(raw), payload["timestamp"]
+                )
+            )
+            # 星上传播时延：帧入队后延迟落地。
+            time.sleep(self.link_delay_s)
+            try:
+                self._post_ingest(raw)
+            except Exception as exc:
+                log(
+                    "[SATELLITE][SEND][WARN] frame_no={} send failed: {} | "
+                    "retry next cycle".format(frame_no, exc),
+                    level="WARN",
+                )
+            if self.interval <= 0:
+                log(
+                    "[SATELLITE] one-shot send completed; thread remains idle"
+                )
+                while True:
+                    time.sleep(3600)
+            wait_seconds = max(0.0, self.interval - self.link_delay_s)
+            log("[SATELLITE] next send in {:.0f}s".format(wait_seconds))
+            time.sleep(wait_seconds)
+
     def run(self):
+        if self.over_5g:
+            self._run_over_5g()
+            return
         if not self._load_pyserial():
             return
         log(
@@ -4242,6 +4423,8 @@ def main():
 
     log_every = max(1, int(args.log_every))
     link_status_host = args.link_status_host or args.cloud_host
+    # 2.2.4 联调：短波/卫星直发模式（默认 None=现网行为）。
+    radio_over_5g = load_radio_over_5g_config()
 
     json_queue = DroppingQueue(args.json_queue)
     media_queue = DroppingQueue(args.media_queue)
@@ -4489,6 +4672,7 @@ def main():
             args.whitelist_filter,
             args.time_set_interval,
             slice_metrics,
+            radio_over_5g,
         ),
         daemon=True,
         name="json-listener",
@@ -4498,6 +4682,9 @@ def main():
 
     # 5. USB串口400-GM12卫星上行；故障只影响该守护线程。
     if not args.disable_satellite:
+        satellite_ingest_port = int(
+            os.environ.get("EDGE_SAT_INGEST_PORT", "11503")
+        )
         satellite_uplink = SatelliteUplink(
             port=args.satellite_port,
             baudrate=args.satellite_baud,
@@ -4507,6 +4694,13 @@ def main():
             reconnect_interval=args.satellite_reconnect_interval,
             data_type=args.satellite_data_type,
             query_queue=not args.satellite_skip_queue_query,
+            over_5g=radio_over_5g is not None,
+            link_delay_s=(
+                radio_over_5g["sat_delay_s"] if radio_over_5g else 0.0
+            ),
+            ingest_url="http://{}:{}/ingest".format(
+                args.cloud_host, satellite_ingest_port
+            ),
         )
         satellite_uplink.start()
         detail_log("[MAIN] thread started: {}".format(satellite_uplink.name))

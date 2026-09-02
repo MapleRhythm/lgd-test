@@ -34,6 +34,8 @@ GATEWAY_ARGS=(
 if [[ "${EDGE_DISABLE_SATELLITE:-0}" == "1" ]]; then
   GATEWAY_ARGS+=(--disable-satellite)
 fi
+# 卫星发送周期覆盖（默认 300s，见 edge_config.py）；仅在设置时生效。
+[[ -n "${EDGE_SATELLITE_INTERVAL:-}" ]] && GATEWAY_ARGS+=(--satellite-interval "$EDGE_SATELLITE_INTERVAL")
 
 # 台架联调可覆盖中转/宝通目标；真机留空即用生产默认值。
 [[ -n "${EDGE_CLOUD_HOST:-}" ]] && GATEWAY_ARGS+=(--cloud-host "$EDGE_CLOUD_HOST")
