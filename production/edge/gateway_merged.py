@@ -1418,16 +1418,28 @@ def load_radio_over_5g_config():
 
     return {
         "sw_delay_s": _seconds("EDGE_SW_DELAY_S", 20.0),
+        "sw_jitter_s": _seconds("EDGE_SW_JITTER_S", 3.0),
         "sat_delay_s": _seconds("EDGE_SAT_DELAY_S", 120.0),
+        "sat_jitter_s": _seconds("EDGE_SAT_JITTER_S", 10.0),
     }
 
 
-def _dispatch_shortwave_over_5g(baotong_server, delay_s, send_queue, counter):
+def _jittered_delay(base_s, jitter_s):
+    """信道时延抖动：每次发送的实际时延在 base±jitter 内随机波动（下限
+    0.5s，兼容台架联调的小时延档），模拟真实短波/卫星信道的传播起伏。"""
+    delay = base_s + random.uniform(-jitter_s, jitter_s)
+    return max(0.5, delay)
+
+
+def _dispatch_shortwave_over_5g(
+    baotong_server, delay_s, jitter_s, send_queue, counter
+):
     """短波直发联调（配 EDGE_RADIO_OVER_5G）：现网为主站轮询架构，联调时
     核心不呼叫，边缘在短波信道时延后直接把最新业务短信发往核心网关。
     短信字节实际进入统一上行队列（JsonCloudSender），控制台只打印电台
     口径的 [BAOTONG-V2][SEND]（peer=宝通电台地址）。同一时刻只允许一条
-    短信在信道上：在途期间新到的数据只更新缓存，随下一轮发送带出。"""
+    短信在信道上：在途期间新到的数据只更新缓存，随下一轮发送带出。
+    每次发送的信道时延在 delay_s±jitter_s 内随机波动。"""
     with _SW_OVER_5G_LOCK:
         if _SW_OVER_5G_PENDING["armed"]:
             return
@@ -1435,7 +1447,13 @@ def _dispatch_shortwave_over_5g(baotong_server, delay_s, send_queue, counter):
 
     def _worker():
         try:
-            time.sleep(delay_s)
+            actual_delay = _jittered_delay(delay_s, jitter_s)
+            detail_log(
+                "[BAOTONG-V2] shortwave channel delay {:.2f}s this round".format(
+                    actual_delay
+                )
+            )
+            time.sleep(actual_delay)
             payload = baotong_server.take_direct_payload()
             if payload is None:
                 return
@@ -1731,6 +1749,7 @@ def handle_json_client(
                 _dispatch_shortwave_over_5g(
                     baotong_server,
                     radio_over_5g["sw_delay_s"],
+                    radio_over_5g["sw_jitter_s"],
                     send_queue,
                     shortwave_over_5g,
                 )
@@ -3730,6 +3749,7 @@ class SatelliteUplink(threading.Thread):
         query_queue,
         over_5g=False,
         link_delay_s=0.0,
+        link_jitter_s=0.0,
         ingest_url=None,
     ):
         threading.Thread.__init__(self, daemon=True, name="satellite-uplink")
@@ -3745,6 +3765,7 @@ class SatelliteUplink(threading.Thread):
         # 卫星接收口（HTTP 入库）；控制台输出与串口版完全一致。
         self.over_5g = bool(over_5g)
         self.link_delay_s = float(link_delay_s)
+        self.link_jitter_s = float(link_jitter_s)
         self.ingest_url = ingest_url
         self.serial_module = None
         self.list_ports_module = None
@@ -4038,8 +4059,13 @@ class SatelliteUplink(threading.Thread):
                     self.gateway_id, frame_no, len(raw), payload["timestamp"]
                 )
             )
-            # 星上传播时延：帧入队后延迟落地。
-            time.sleep(self.link_delay_s)
+            # 星上传播时延：帧入队后延迟落地，每帧在 link_delay_s±link_jitter_s
+            # 内随机波动。
+            delay_s = _jittered_delay(self.link_delay_s, self.link_jitter_s)
+            detail_log(
+                "[SATELLITE] link delay {:.2f}s this frame".format(delay_s)
+            )
+            time.sleep(delay_s)
             try:
                 self._post_ingest(raw)
             except Exception as exc:
@@ -4054,7 +4080,7 @@ class SatelliteUplink(threading.Thread):
                 )
                 while True:
                     time.sleep(3600)
-            wait_seconds = max(0.0, self.interval - self.link_delay_s)
+            wait_seconds = max(0.0, self.interval - delay_s)
             log("[SATELLITE] next send in {:.0f}s".format(wait_seconds))
             time.sleep(wait_seconds)
 
@@ -4697,6 +4723,9 @@ def main():
             over_5g=radio_over_5g is not None,
             link_delay_s=(
                 radio_over_5g["sat_delay_s"] if radio_over_5g else 0.0
+            ),
+            link_jitter_s=(
+                radio_over_5g["sat_jitter_s"] if radio_over_5g else 0.0
             ),
             ingest_url="http://{}:{}/ingest".format(
                 args.cloud_host, satellite_ingest_port

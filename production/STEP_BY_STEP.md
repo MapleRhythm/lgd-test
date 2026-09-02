@@ -215,7 +215,8 @@ python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --int
 预期：同步骤 1 的单终端形态（每条指令一行 `[LAUNCH]` 即返回）。终端 A
 出现 `[MULTI-SOURCE] 多源业务接入已启动` 公告并开始转发上云；fire 报文约
 10s 一条（`--duration 12` 可见两条）。直发模式下另见短波短信约 20s 一条
-（`[BAOTONG-V2][SEND]`，时延 `EDGE_SW_DELAY_S`）。有火情演练加 `--fire true`。
+（`[BAOTONG-V2][SEND]`，时延 `EDGE_SW_DELAY_S`±`EDGE_SW_JITTER_S`，逐条
+随机波动）。有火情演练加 `--fire true`。
 
 ## 步骤 4 边缘网关服务日志查询（query_service_log）
 
