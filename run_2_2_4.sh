@@ -20,22 +20,23 @@ section '2.2.4 PRECONDITIONS'
 ./edge_forward.sh --start
 
 section '2.2.4 TEST STEPS'
-./start_video_stream.sh --duration "$SOURCE_DURATION"
-./start_sensor_data.sh --duration "$SOURCE_DURATION"
-./start_env_data.sh --duration "$SOURCE_DURATION"
+# 回归脚本用 --fg 前台直跑（交互终端里默认是后台启动，只回显启动行）。
+./start_video_stream.sh --fg --duration "$SOURCE_DURATION"
+./start_sensor_data.sh --fg --duration "$SOURCE_DURATION"
+./start_env_data.sh --fg --duration "$SOURCE_DURATION"
 ./multi_source_access.sh
-# 交互流程里三个发送终端是持续发送、跨越开闸时点的；单终端回归的限时
+# 交互流程里三个业务是后台持续发送、跨越开闸时点的；单终端回归的限时
 # 发送在开闸前就结束了，这里按同样时长补一轮——多源接入门已开，本轮起
 # 边缘受理、转发上云（开闸前到达的报文保持 gate_closed 不追溯改判）。
-./start_video_stream.sh --duration "$SOURCE_DURATION"
-./start_sensor_data.sh --duration "$SOURCE_DURATION"
-./start_env_data.sh --duration "$SOURCE_DURATION"
+./start_video_stream.sh --fg --duration "$SOURCE_DURATION"
+./start_sensor_data.sh --fg --duration "$SOURCE_DURATION"
+./start_env_data.sh --fg --duration "$SOURCE_DURATION"
 ./query_service_log.sh
 ./query_cloud_log.sh --device-type video/sensor/env
 # 起步无名单过滤（全部放行）；本指令拉取并打印服务器白名单后过滤生效，
-# 传感器终端随发送自动换无关 ID，成为名单外非法设备被拒收。
+# 传感器业务随发送自动换无关 ID，成为名单外非法设备被拒收。
 ./trust_access_add_whitelist.sh "${PROTOCOL_TEST_DEVICE_VIDEO:-182D48D7}" "${PROTOCOL_TEST_DEVICE_SENSOR:-3C15DB07}" ILLEGAL-SENSOR
-./start_sensor_data.sh --duration "$SOURCE_DURATION"
+./start_sensor_data.sh --fg --duration "$SOURCE_DURATION"
 ./start_test.sh --device-id UNKNOWN-001
 ./trust_access_calculate.sh
 ./edge-query.sh --route-log --biz-type video/sensor/critical-sensor/fire

@@ -30,14 +30,16 @@ section '2.2.3'
 ./query_link_data.sh
 
 section '2.2.4'
-./start_video_stream.sh
-./start_sensor_data.sh
-./start_env_data.sh
+# 回归脚本用 --fg 前台直跑（交互终端里默认是后台启动，只回显启动行）；
+# 前三条不限时长，发送几条后 Ctrl-C 进入下一步。
+./start_video_stream.sh --fg
+./start_sensor_data.sh --fg
+./start_env_data.sh --fg
 ./multi_source_access.sh
 # 开闸后补一轮正常发送（交互流程中发送器持续跨越开闸时点，此处等效模拟）
-./start_video_stream.sh --duration 3
-./start_sensor_data.sh --duration 3
-./start_env_data.sh --duration 3
+./start_video_stream.sh --fg --duration 3
+./start_sensor_data.sh --fg --duration 3
+./start_env_data.sh --fg --duration 3
 ./query_service_log.sh
 ./query_cloud_log.sh --device-type video/sensor/env
 ./trust_access_add_whitelist.sh "${PROTOCOL_TEST_DEVICE_VIDEO:-182D48D7}" "${PROTOCOL_TEST_DEVICE_SENSOR:-3C15DB07}"

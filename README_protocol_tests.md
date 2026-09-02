@@ -211,8 +211,11 @@ Use a short duration while checking the workflow, for example
 依次输入 start 命令即可（各命令独立进程、独立 TCP 长连接，可同时运行；
 状态写入与 msg_id 分配均有跨进程锁）。
 
-三个 start 命令默认**持续发送**（每秒一条，`--count`/`--duration` 可覆盖，
-Ctrl-C 停止）。`./multi_source_access.sh` 执行前，边缘网关（真网关与本地模型
+三个 start 命令默认**后台启动**：终端只显示一行「业务已启动」（pid/时长/
+日志路径）即回提示符，progress 明细写 `.protocol-test/sender-*.log`，默认
+600s 自行结束（`SENDER_DURATION` 可覆盖）；`--stop` 停止对应后台发送（只
+kill 记录的 pid），`--fg` 前台直跑（一键回归脚本内部即用 `--fg`）。
+`./multi_source_access.sh` 执行前，边缘网关（真网关与本地模型
 一致）只累计接收统计，不受理端侧数据：JSON 口报文计 `gate_drop`，媒体口
 VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信接入：起步
 **不过滤名单**（全部放行），`./trust_access_add_whitelist.sh` 从服务器拉取白名单
@@ -260,7 +263,7 @@ PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh
 
 | 步骤 | 终端 | 命令 | 预期 |
 |------|------|------|------|
-| 1 多源业务接入 | 端侧 | 依次（或同时）执行 `./start_video_stream.sh` / `./start_sensor_data.sh` / `./start_env_data.sh`（同一终端） | 持续发送、跨越开闸时点；开闸前到达的报文边缘只计 `gate_drop` 接收统计（不受理属预期） |
+| 1 多源业务接入 | 端侧 | 依次（或同时）执行 `./start_video_stream.sh` / `./start_sensor_data.sh` / `./start_env_data.sh`（同一终端，默认后台启动） | 后台持续发送（默认 600s）、跨越开闸时点；开闸前到达的报文边缘只计 `gate_drop` 接收统计（不受理属预期） |
 | 2 多源接入门 | 边缘 | `./multi_source_access.sh` | 落 `multi_source_access.enabled`，边缘开始受理并转发上云；真网关日志出现 `[MULTI-SOURCE]` 受理公告 |
 | 3 服务日志查询 | 边缘 | `./query_service_log.sh` | 接收统计 + 业务传输日志表（本地台账）；真网关日志 tail 可见受理/转发行 |
 | 4 云端日志查询 | 边缘 | `PROTOCOL_TEST_CLOUD_HTTP_HOST=47.99.47.169 ./query_link_data.sh` | live 核对：云端最新 msg_id 与发送一致（真实云节点只读面） |
@@ -275,9 +278,9 @@ PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh
 ### WSL2 本地演示
 
 ```bash
-./start_video_stream.sh           # 视频流业务（持续发送，Ctrl-C 停止）
-./start_sensor_data.sh            # 传感器业务（持续发送；过滤生效后自动变为非法设备）
-./start_env_data.sh               # 环境监测业务（持续发送）
+./start_video_stream.sh           # 视频流业务（后台启动，一行「已启动」即回提示符）
+./start_sensor_data.sh            # 传感器业务（后台启动；过滤生效后自动变为非法设备）
+./start_env_data.sh               # 环境监测业务（后台启动）
 ./multi_source_access.sh          # 边缘网关终端：此后边缘才开始受理端侧数据
 ./query_service_log.sh            # 边缘网关终端
 ./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（默认只显示日志表）

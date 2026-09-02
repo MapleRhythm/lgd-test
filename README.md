@@ -19,7 +19,11 @@
 端侧三路业务（视频流 182D48D7/有线、传感器 3C15DB07/Wi-Fi、环境监测
 990E261B/轮换）合并到同一个端侧终端：依次输入三个 start 命令即可，各命令是
 独立进程、独立 TCP 长连接（可同时运行，状态写入与 msg_id 分配均有跨进程锁）。
-start 命令默认持续发送（Ctrl-C 停止）；`./multi_source_access.sh` 执行前
+start 命令默认**后台启动**——终端只显示一行「业务已启动」（pid/时长/日志
+路径）即回提示符，progress 明细写 `.protocol-test/sender-*.log`，默认 600s
+自行结束（`SENDER_DURATION` 可覆盖）；`--stop` 停止对应后台发送（只 kill
+记录的 pid），`--fg` 前台直跑（输出进度到终端，一键回归脚本内部即用 `--fg`）。
+`./multi_source_access.sh` 执行前
 边缘网关不受理端侧数据（接入门）。可信接入：起步不过滤名单（全部放行），
 `./trust_access_add_whitelist.sh` 拉取并打印服务器白名单后过滤生效，传感器
 业务自动换无关设备 ID 被拒收并记阻断日志。
