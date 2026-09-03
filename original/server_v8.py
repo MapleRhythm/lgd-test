@@ -1488,12 +1488,34 @@ def handle_framed_sender(conn, addr, storage, initial_prefix, custom_id):
             pass
 
 
+def enable_tcp_keepalive(conn, idle=30, interval=10, count=3):
+    """下行消费者线程只发不收（get→sendall，从不 recv），对端断开时收不到
+    EOF；5G 运营商 NAT 还会静默回收空闲 TCP 映射，核心侧的 FIN 都送不进
+    服务器——旧消费者线程就此变成僵尸，与重连后的新消费者轮流抢共享队列
+    里的消息（业务表现：一次发 5 条核心只见到第 1/3/5 条）。开 keepalive：
+    探测包既保住 NAT 映射，又让死连接在 idle+interval*count 秒后出错，僵尸
+    线程偷到下一条消息时 sendall 抛异常自行退出。"""
+    conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    for opt_name, value in (
+        ("TCP_KEEPIDLE", idle),
+        ("TCP_KEEPINTVL", interval),
+        ("TCP_KEEPCNT", count),
+    ):
+        opt = getattr(socket, opt_name, None)
+        if opt is not None:
+            try:
+                conn.setsockopt(socket.IPPROTO_TCP, opt, value)
+            except OSError:
+                pass
+
+
 def handle_framed_receiver(conn, addr, gateway_id, pre_buffer_count):
     frame_queue = framed_queues[gateway_id]
     print(
         "[+OLD DOWN] core connected for %s on old channel (%s:%s)"
         % (gateway_id, addr[0], addr[1])
     )
+    enable_tcp_keepalive(conn)
 
     try:
         buffer = []
@@ -1932,6 +1954,7 @@ def handle_json_receiver(conn, addr, gateway_id):
         "[+JSON DOWN] core connected on %s for %s (%s:%s)"
         % (config["port"], config["display"], addr[0], addr[1])
     )
+    enable_tcp_keepalive(conn)
 
     total_sent = 0
     last_total = 0
