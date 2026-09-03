@@ -36,9 +36,10 @@
 
 审计：每条报文写入 <state>/sent.jsonl（msg_id 连续编号持久化在 counters.json），
 供端到端核对与中转侧 STAT 计数对账。
-"""
 
-from __future__ import annotations
+兼容性：按生产机 Python 3.6 编写（不用 from __future__ import annotations
+与内置泛型下标/类型 | 联合注解）。
+"""
 
 import argparse
 import json
@@ -61,7 +62,7 @@ def now_bj() -> str:
     return datetime.now(BJ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-_COUNTERS: dict | None = None
+_COUNTERS = None  # dict（{"msg": n, "event": n}），加载前为 None
 _COUNTERS_LOCK = threading.Lock()
 _SENT_LOCK = threading.Lock()
 
@@ -76,7 +77,7 @@ def _load_counters() -> dict:
     return _COUNTERS
 
 
-def next_ids() -> tuple[str, str]:
+def next_ids():
     """全进程共享、跨链路唯一的 msg/event 编号（并发安全）。"""
     with _COUNTERS_LOCK:
         counters = _load_counters()
@@ -100,9 +101,9 @@ def append_sent(record: dict) -> None:
 class ValueSource:
     """业务读数来源：内置模拟 / 固定值 / 文件逐行（真实传感器接入点）。"""
 
-    def __init__(self, fixed: str | None, values_file: str | None):
+    def __init__(self, fixed, values_file):
         self.fixed = fixed
-        self.lines: list[str] = []
+        self.lines = []
         self.cursor = 0
         if values_file:
             self.lines = [
@@ -143,7 +144,7 @@ class Sender:
         sock.settimeout(10.0)
         return sock
 
-    def send_one(self, sock: socket.socket | None) -> tuple[socket.socket | None, bool, int]:
+    def send_one(self, sock):
         msg_id, event_id = next_ids()
         self.last_msg_id = msg_id
         message = {
@@ -298,7 +299,7 @@ def run_multi(args) -> int:
     return 0
 
 
-def _launch_line(args, log_path: str, pid: int | None = None) -> str:
+def _launch_line(args, log_path: str, pid=None) -> str:
     if args.count:
         amount = "count=%d" % args.count
     elif args.duration:
@@ -311,7 +312,7 @@ def _launch_line(args, log_path: str, pid: int | None = None) -> str:
                pid_part, log_path))
 
 
-def _enter_background(args) -> int | None:
+def _enter_background(args):
     """单终端合并形态：打印一行业务发送启动日志后转入后台。
 
     父进程输出 [LAUNCH]（含后台进程 pid 与日志路径）后立即退出，终端
