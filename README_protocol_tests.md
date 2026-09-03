@@ -215,7 +215,8 @@ Use a short duration while checking the workflow, for example
 device/链路/持续或条数或时长/pid/日志路径，与生产包 `send_business.py`
 同格式）即回提示符，progress 明细写 `.protocol-test/sender-<biz>-<时间>.log`，
 直到 kill `[LAUNCH]` 行打印的 pid；`--count/--duration` 到限自行结束，
-`--fg` 前台直跑（一键回归脚本内部即用 `--fg`）。
+`--fg` 前台直跑（一键回归脚本内部即用 `--fg`）。从 `run_device_terminal.sh`
+启动的后台发送随该终端退出自动结束（终端只 kill 本会话登记的 pid）。
 `./multi_source_access.sh` 执行前，边缘网关（真网关与本地模型
 一致）只累计接收统计，不受理端侧数据：JSON 口报文计 `gate_drop`，媒体口
 VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信接入：起步

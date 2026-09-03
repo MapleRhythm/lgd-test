@@ -23,7 +23,9 @@ start 命令默认**后台持续发送**——终端只显示一行 `[LAUNCH]`�
 链路/持续或条数或时长/pid/日志路径，与生产包 `send_business.py` 同格式）
 即回提示符，明细写 `.protocol-test/sender-<biz>-<时间>.log`，直到 kill
 `[LAUNCH]` 行打印的 pid；`--count/--duration` 到限自行结束，`--fg` 前台
-直跑（输出进度到终端，一键回归脚本内部即用 `--fg`）。
+直跑（输出进度到终端，一键回归脚本内部即用 `--fg`）。从
+`run_device_terminal.sh` 启动的后台发送随该终端退出自动结束（终端只 kill
+本会话登记的 pid）。
 `./multi_source_access.sh` 执行前
 边缘网关不受理端侧数据（接入门）。可信接入：起步不过滤名单（全部放行），
 `./trust_access_add_whitelist.sh` 拉取并打印服务器白名单后过滤生效，传感器

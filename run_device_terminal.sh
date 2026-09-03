@@ -39,6 +39,10 @@ export PROTOCOL_TEST_MEDIA_PORT="${DEVICE_MEDIA_PORT:-7777}"
 # 默认业务身份为环境监测（2.2.3 端侧流程：start_test/keep_transfer 等默认 env）。
 export PROTOCOL_TEST_DEFAULT_BIZ=env
 
+# 本终端的发送会话 ID（每次开终端唯一）：后台发送器 fork 后把 pid 登记到
+# $STATE_DIR/sender-sessions/<会话>/pids，退出本终端时据此结束它们。
+export PROTOCOL_TEST_SENDER_SESSION="device-$$-$(date +%Y%m%d%H%M%S)"
+
 BAR='════════════════════════════════════════════════════════════════════════════════'
 printf '\n\033[36m  %s\033[0m\n' "$BAR"
 printf '\033[1;36m  %s\033[0m\n' '端侧设备终端 · END DEVICE TERMINAL（单终端合并形态）'
@@ -60,7 +64,8 @@ printf '    ./start_video_stream.sh --duration 30 --interval 1\n'
 printf '    ./start_sensor_data.sh --count 5\n'
 printf '    ./start_env_data.sh --duration 60\n'
 printf '    ./start_xxx.sh --fg ...    # 前台直跑（输出进度到终端，同旧版）\n'
-printf '  停止后台发送：kill [LAUNCH] 行里打印的 pid（--count/--duration 到限自行结束）\n'
+printf '  停止后台发送：kill [LAUNCH] 行里打印的 pid（--count/--duration 到限自行结束；\n'
+printf '  退出本终端时自动结束本终端启动的后台发送）\n'
 printf '\n'
 printf '  火情（随视频流上报，每10s一条，默认无火情 false）:\n'
 printf '    ./fire_alarm.sh --on        # 触发火情：后续火情上报载荷变为 true\n'
@@ -76,8 +81,20 @@ printf '    ./start_test.sh\n'
 printf '    ./keep_transfer.sh --duration 600 --interval 1\n'
 printf '    ./multi_link_bandwidth.sh --duration 5\n'
 printf '\n'
-printf '  未限条数/时长的后台发送会一直跑（记得 kill pid）；边缘网关受理前\n'
+printf '  未限条数/时长的后台发送一直跑到退出本终端；边缘网关受理前\n'
 printf '  需先执行 ./multi_source_access.sh\n'
 printf '\n'
 printf '  exit the prompt to close the end device terminal\n\n'
-PS1='device> ' bash --noprofile --norc -i
+PS1='device> ' bash --noprofile --norc -i || true
+
+# 退出终端：自动结束本终端启动的后台业务发送（只 kill 会话目录里登记的
+# pid，绝不 pkill -f；--count/--duration 到限已退出的发送器 kill 落空属正常）。
+session_dir="${PROTOCOL_TEST_STATE_DIR}/sender-sessions/${PROTOCOL_TEST_SENDER_SESSION}"
+if [[ -s "$session_dir/pids" ]]; then
+  session_pids="$(tr '\n' ' ' < "$session_dir/pids")"
+  for sender_pid in $session_pids; do
+    kill "$sender_pid" 2>/dev/null || true
+  done
+  rm -rf "$session_dir"
+  printf '\n  后台业务发送已随终端退出结束（pid:%s）\n\n' "$session_pids"
+fi

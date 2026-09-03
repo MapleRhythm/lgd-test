@@ -1465,6 +1465,18 @@ def _enter_background(args, source_kind: str) -> int | None:
         print(_launch_line(args, source_kind, log_path, pid), flush=True)
         return 0
     os.setsid()
+    # 终端会话登记：run_device_terminal.sh 退出时只 kill 本会话目录登记的
+    # pid，实现「退出 device 终端自动结束后台发送」；未设会话变量（裸
+    # python 直跑）或登记失败时不影响发送，停止仍靠 kill [LAUNCH] 行的 pid。
+    session_id = os.getenv("PROTOCOL_TEST_SENDER_SESSION")
+    if session_id:
+        try:
+            session_dir = STATE_DIR / "sender-sessions" / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            with open(session_dir / "pids", "a", encoding="utf-8") as handle:
+                handle.write("%d\n" % os.getpid())
+        except OSError:
+            pass
     sys.stdout.flush()
     sys.stderr.flush()
     log_fh = open(log_path, "a", encoding="utf-8", buffering=1)
