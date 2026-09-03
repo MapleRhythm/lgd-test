@@ -523,9 +523,10 @@ def degraded_mode(state: dict) -> bool:
 
 
 def proposed_routes(state: dict, biz_type: str):
-    # 大纲 2.2.5 条目3：正常时视频/传感器经 5G，告警/控制同步经短波与
-    # 卫星，关键传感器经卫星；5G 低于阈值后短波改为传输关键传感器数据
-    # 与告警/控制，卫星传输内容不变，关键业务不中断。
+    # 大纲 2.2.5 条目2：视频/图片/传感器经 5G，告警和控制同时经 5G 与
+    # 短波，部分关键传感器经卫星接入模块同步转发；条目3：5G 低于阈值后
+    # 短波改为传输关键传感器数据与告警/控制，卫星传输内容不变（仅承载
+    # 关键传感器），关键业务持续不中断。
     biz_type = normalize_biz_type(biz_type)
     if degraded_mode(state):
         return {
@@ -534,10 +535,10 @@ def proposed_routes(state: dict, biz_type: str):
             "sensor": [],
             "env": [],
             "critical-sensor": ["shortwave", "satellite"],
-            "fire": ["shortwave", "satellite"],
-            "control": ["shortwave", "satellite"],
-            "alarm": ["shortwave", "satellite"],
-            "control-alarm": ["shortwave", "satellite"],
+            "fire": ["shortwave"],
+            "control": ["shortwave"],
+            "alarm": ["shortwave"],
+            "control-alarm": ["shortwave"],
         }.get(biz_type, ["shortwave"])
     return {
         "video": ["5g"],
@@ -545,10 +546,10 @@ def proposed_routes(state: dict, biz_type: str):
         "sensor": ["5g"],
         "env": ["5g"],
         "critical-sensor": ["satellite"],
-        "fire": ["5g", "shortwave", "satellite"],
-        "control": ["5g", "shortwave", "satellite"],
-        "alarm": ["5g", "shortwave", "satellite"],
-        "control-alarm": ["5g", "shortwave", "satellite"],
+        "fire": ["5g", "shortwave"],
+        "control": ["5g", "shortwave"],
+        "alarm": ["5g", "shortwave"],
+        "control-alarm": ["5g", "shortwave"],
     }.get(biz_type, ["5g"])
 
 
@@ -1903,8 +1904,8 @@ def cmd_policy_route(args) -> int:
     title("POLICY ROUTE ENGINE")
     if args.action == "start":
         ok("policy route engine is RUNNING")
-        info("normal: video/image/sensor -> 5G; alert/control -> 5G + shortwave + satellite; critical sensor -> satellite")
-        info("degraded: critical sensor -> shortwave + satellite; alert/control -> shortwave + satellite (satellite unchanged)")
+        info("normal: video/image/sensor -> 5G; alert/control -> 5G + shortwave; critical sensor -> satellite")
+        info("degraded: critical sensor -> shortwave + satellite; alert/control -> shortwave (satellite keeps critical sensor only)")
         info("shortwave answers: fire only when 5G is up; fire/windspeed rotate per answer when 5G is down")
     else:
         warn("policy route engine is STOPPED")
