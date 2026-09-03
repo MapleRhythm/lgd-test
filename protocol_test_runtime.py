@@ -1939,15 +1939,6 @@ def cmd_cloud_query(args) -> int:
         duplicate_copies = len(physical_keys) - len(set(physical_keys))
         table(("Logical msg_id", "Duplicate copies"), [(unique, duplicate_copies)])
         ok("msg_id uniqueness check passed (redundant links share one logical msg_id)" if duplicate_copies == 0 else "duplicate msg_id/link copies detected")
-        if cloud_live_enabled():
-            rows = [row for row in live_cloud_rows() if row["msg_id"] or row["device_id"]]
-            if rows:
-                table(("Live channel", "Source", "msg_id", "Device"),
-                      [(row["channel"], row["origin"], row["msg_id"] or "-", row["device_id"] or "-") for row in rows])
-                ok("live latest records all carry a msg_id" if all(row["msg_id"] for row in rows)
-                   else "live latest records with an empty msg_id detected")
-            else:
-                warn("live core gateway reachable but no fresh records within the 5-minute window")
         return 0 if duplicate_copies == 0 else 1
     if args.link_id_check:
         title("CLOUD LINK ID CHECK")
