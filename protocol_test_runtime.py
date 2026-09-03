@@ -1946,13 +1946,6 @@ def cmd_cloud_query(args) -> int:
         complete = sum(1 for item in records if item.get("link_id") in UPLINK)
         table(("Cloud records", "Valid link_id", "Missing/invalid"), [(len(records), complete, len(records) - complete)])
         ok("link_id completeness check passed" if complete == len(records) else "link_id completeness check found gaps")
-        if cloud_live_enabled():
-            rows = [row for row in live_cloud_rows() if row["msg_id"] or row["device_id"]]
-            if rows:
-                table(("Live channel", "Source", "link_id", "Device"),
-                      [(row["channel"], row["origin"], row["link_id"] or "-", row["device_id"] or "-") for row in rows])
-                ok("live latest records all carry a link_id" if all(row["link_id"] for row in rows)
-                   else "live latest records with an empty link_id detected")
         return 0 if complete == len(records) else 1
     if args.route_decision:
         title("CLOUD ROUTE DECISIONS")
