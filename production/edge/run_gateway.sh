@@ -53,4 +53,8 @@ if [[ -n "${EDGE_EXTRA_ARGS:-}" ]]; then
   GATEWAY_ARGS+=($EDGE_EXTRA_ARGS)
 fi
 
+# 网关日志同屏并落盘 gateway.log(大纲 query_service_log 步骤 tail 该文件)。
+# 追加不覆盖:网关重启后历史留痕;要干净日志先 rm gateway.log。
+exec > >(tee -a gateway.log) 2>&1
+
 exec python3 -u gateway_merged.py "${GATEWAY_ARGS[@]}"

@@ -7,8 +7,6 @@ captured source.  Console output is redacted so internal transport details do
 not appear in a test-terminal recording.
 """
 
-from __future__ import annotations
-
 import os
 import re
 import sys
@@ -128,7 +126,11 @@ def load_module(name: str, path: Path):
 
 
 def main() -> None:
-    sys.stdout = RedactedStdout(sys.stdout)
+    # Redaction layer is for demo-terminal recordings.  Real-board debugging
+    # sets CLOUD_REDACT=0 to print raw endpoints/ports and unsuppressed
+    # heartbeat lines (about one heartbeat line per second per gateway).
+    if os.environ.get("CLOUD_REDACT", "1") != "0":
+        sys.stdout = RedactedStdout(sys.stdout)
     config_module = load_module("config", ROOT / "original" / "config.py")
     # WSL2 has no BaoTong network interface; keep this optional hardware path
     # quiet while the cloud management node and protocol data paths run.
@@ -137,12 +139,14 @@ def main() -> None:
     # packet so ./query_link_data.sh still shows the live channel table once
     # a transfer finishes (deployment default in config.py is 30 s).
     config_module.JSON_MAX_AGE_SECONDS = 300.0
-    # Demo pacing: the per-channel [JSON-UP][ch][DETAIL] stat lines flood the
-    # cloud terminal every 5 s (config.py default); the display layer now
-    # drops them outright -- set CLOUD_JSON_DETAIL=1 (and optionally
-    # CLOUD_JSON_REPORT_INTERVAL=5) to bring them back for debugging.
+    # Real-time receive logging: 0 makes gateway_v1 print one
+    # [JSON-UP][ch][DETAIL] line for EVERY received business JSON line
+    # (rate/total are then per-message).  The demo display layer drops those
+    # lines unless CLOUD_JSON_DETAIL=1 (real-board debugging sets that, or
+    # CLOUD_REDACT=0); CLOUD_JSON_REPORT_INTERVAL=60 restores the
+    # one-line-per-minute summary for quiet demo terminals.
     config_module.JSON_REPORT_INTERVAL = float(
-        os.environ.get("CLOUD_JSON_REPORT_INTERVAL", "60"))
+        os.environ.get("CLOUD_JSON_REPORT_INTERVAL", "0"))
     source_path = ROOT / "original" / "gateway_v1.py"
     source = unwrap(source_path)
     namespace = {"__name__": "__main__", "__file__": str(source_path)}

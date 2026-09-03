@@ -37,8 +37,8 @@
 审计：每条报文写入 <state>/sent.jsonl（msg_id 连续编号持久化在 counters.json），
 供端到端核对与中转侧 STAT 计数对账。
 
-兼容性：按生产机 Python 3.6 编写（不用 from __future__ import annotations
-与内置泛型下标/类型 | 联合注解）。
+兼容性：按生产机 Python 3.6 编写（注解用 typing.Optional/List/Tuple，
+不用 from __future__ import annotations、内置泛型下标与 | 联合等 3.7+ 语法）。
 """
 
 import argparse
@@ -51,6 +51,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 BJ = timezone(timedelta(hours=8))
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -62,7 +63,7 @@ def now_bj() -> str:
     return datetime.now(BJ).strftime("%Y-%m-%d %H:%M:%S")
 
 
-_COUNTERS = None  # dict（{"msg": n, "event": n}），加载前为 None
+_COUNTERS: Optional[dict] = None
 _COUNTERS_LOCK = threading.Lock()
 _SENT_LOCK = threading.Lock()
 
@@ -77,8 +78,7 @@ def _load_counters() -> dict:
     return _COUNTERS
 
 
-def next_ids():
-    """全进程共享、跨链路唯一的 msg/event 编号（并发安全）。"""
+def next_ids() -> Tuple[str, str]:
     with _COUNTERS_LOCK:
         counters = _load_counters()
         counters["msg"] = int(counters.get("msg", 0)) + 1
@@ -101,9 +101,9 @@ def append_sent(record: dict) -> None:
 class ValueSource:
     """业务读数来源：内置模拟 / 固定值 / 文件逐行（真实传感器接入点）。"""
 
-    def __init__(self, fixed, values_file):
+    def __init__(self, fixed: Optional[str], values_file: Optional[str]):
         self.fixed = fixed
-        self.lines = []
+        self.lines: List[str] = []
         self.cursor = 0
         if values_file:
             self.lines = [
@@ -144,7 +144,7 @@ class Sender:
         sock.settimeout(10.0)
         return sock
 
-    def send_one(self, sock):
+    def send_one(self, sock: Optional[socket.socket]) -> Tuple[Optional[socket.socket], bool, int]:
         msg_id, event_id = next_ids()
         self.last_msg_id = msg_id
         message = {

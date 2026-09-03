@@ -48,7 +48,7 @@ section '2.2.3  业务数据发送（start_test）'
 python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" --count "$START_COUNT" --fg
 
 section '2.2.3  边缘网关服务日志查询（query_service_log，在边缘网关执行）'
-on_edge "tail -n 40 '$EDGE_LOG'"
+on_edge "tail -n 40 '$EDGE_LOG' 2>/dev/null || echo '  (gateway.log 尚未生成：run_gateway.sh 现已自动落盘，重启网关即可)'"
 
 section '2.2.3  持续传输（keep_transfer，仅有线）'
 python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" \

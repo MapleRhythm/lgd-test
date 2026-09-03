@@ -119,7 +119,7 @@ launch_sender post-fire.log --device-id "$DEVICE_VIDEO" --biz-type fire --link w
 wait_round "$POST_DURATION"
 
 section '2.2.4  边缘网关服务日志查询（query_service_log，在边缘网关执行）'
-on_edge "tail -n 40 '$EDGE_LOG'"
+on_edge "tail -n 40 '$EDGE_LOG' 2>/dev/null || echo '  (gateway.log 尚未生成：run_gateway.sh 现已自动落盘，重启网关即可)'"
 
 section '2.2.4  端到端链路数据查询（多源上云核对，生产只读）'
 RELAY_HOST="$RELAY_HOST" bash "$SCRIPT_DIR/../cloud/query_relay_state.sh"
