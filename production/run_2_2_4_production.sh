@@ -4,7 +4,8 @@
 # 与真机三节点部署的差别：网关与发送器同机、端口错开演示环境。
 # 三台终端设备合并为单终端：三条业务发送指令（+火情上报指令）在同一
 # 终端顺序输入，每条只打印 [LAUNCH] 业务发送启动日志即返回，实际发送
-# 在后台进行（send_business.py --background，按 --duration 自行结束）。
+# 在后台进行（send_business.py 默认即后台；本脚本各轮均显式给 --duration，
+# 按 --duration 自行结束）。
 # 2.2.4 前提按开发侧语义先打开转发通道（云端一致性核对需要）——转发一经
 # 激活，接入门打开后到达的真实业务流会发往生产中转 RELAY_HOST（默认
 # 47.99.47.169，借用白名单设备 ID）；接入门打开前到达的报文只计接收统计
@@ -207,9 +208,9 @@ RELAY_HOST="$RELAY_HOST" EDGE_STATE_DIR="$EDGE_STATE" \
 
 section '9  名单外设备发送（非法终端被边缘网关拒收）'
 python3 "$PROD_DIR/device/send_business.py" --host 127.0.0.1 --port "$EDGE_JSON_PORT" \
-    --device-id "$ILLEGAL_DEVICE_ID" --count "$ILLEGAL_COUNT"
+    --device-id "$ILLEGAL_DEVICE_ID" --count "$ILLEGAL_COUNT" --fg
 python3 "$PROD_DIR/device/send_business.py" --host 127.0.0.1 --port "$EDGE_JSON_PORT" \
-    --device-id "$UNKNOWN_DEVICE_ID" --count "$ILLEGAL_COUNT"
+    --device-id "$UNKNOWN_DEVICE_ID" --count "$ILLEGAL_COUNT" --fg
 echo '网关拒收明细（最近5条）：'
 grep -F '[WHITELIST][BLOCK]' "$STATE_DIR/gateway.log" | tail -n 5 || true
 

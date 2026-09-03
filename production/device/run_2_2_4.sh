@@ -133,9 +133,9 @@ on_edge "RELAY_HOST='$RELAY_HOST' ./trust_access_add_whitelist.sh '$DEVICE_VIDEO
 
 section '2.2.4  名单外设备发送（非法终端被边缘网关拒收）'
 python3 send_business.py --host "$EDGE_HOST" --port "$EDGE_JSON_PORT" \
-    --device-id "$ILLEGAL_DEVICE_ID" --count "$ILLEGAL_COUNT"
+    --device-id "$ILLEGAL_DEVICE_ID" --count "$ILLEGAL_COUNT" --fg
 python3 send_business.py --host "$EDGE_HOST" --port "$EDGE_JSON_PORT" \
-    --device-id "$UNKNOWN_DEVICE_ID" --count "$ILLEGAL_COUNT"
+    --device-id "$UNKNOWN_DEVICE_ID" --count "$ILLEGAL_COUNT" --fg
 echo '  （拒收明细见边缘网关日志 [WHITELIST][BLOCK] 行，下一步统计汇总）'
 
 section '2.2.4  可信接入统计（trust_access_calculate，在边缘网关执行）'

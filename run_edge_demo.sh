@@ -40,5 +40,5 @@ export PROTOCOL_TEST_LIVE=1
 export PROTOCOL_TEST_GATEWAY_HOST=127.0.0.1
 export PROTOCOL_TEST_GATEWAY_PORT=8888
 export PROTOCOL_TEST_STATE_DIR="$SCRIPT_DIR/.protocol-test"
-./start_sensor_data.sh --duration "${SENSOR_DURATION:-30}" --interval 2 --device-id "${PROTOCOL_TEST_DEVICE_SENSOR:-3C15DB07}"
+./start_sensor_data.sh --fg --duration "${SENSOR_DURATION:-30}" --interval 2 --device-id "${PROTOCOL_TEST_DEVICE_SENSOR:-3C15DB07}"
 wait "$EDGE_PID"

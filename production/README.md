@@ -71,34 +71,38 @@ export EDGE_HOST=<边缘网关IP>        # 默认 127.0.0.1
 可选 `EDGE_SSH=user@edge-host` + `EDGE_REMOTE_DIR=<边缘上的edge目录>`：
 日志查询与转发激活两步自动经 ssh 到边缘网关执行，否则打印人工指令。
 
-单发 / 定制：
+单发 / 定制（**默认后台持续发送**；下列单发/调试场景用 `--fg` 回前台直看
+`[SEND]`/`[SUMMARY]`，不加 `--count`/`--duration` 则持续发送直到 kill
+`[LAUNCH]` 行打印的 pid）：
 
 ```bash
-python3 send_business.py --count 5                       # 定量
-python3 send_business.py --duration 600 --interval 1     # 持续（有线）
-python3 send_business.py --link all --duration 5         # 三模态并发吞吐
-python3 send_business.py --value 17.3 --count 1          # 真实传感器单值
-python3 send_business.py --values-file ws.txt --duration 60   # 逐行喂入实时读数
+python3 send_business.py                                 # 默认：后台持续发送
+python3 send_business.py --count 5 --fg                  # 定量（前台）
+python3 send_business.py --duration 600 --interval 1 --fg    # 持续（有线，前台）
+python3 send_business.py --link all --duration 5 --fg    # 三模态并发吞吐（前台）
+python3 send_business.py --value 17.3 --count 1 --fg     # 真实传感器单值（前台）
+python3 send_business.py --values-file ws.txt --duration 60 --fg  # 逐行喂入实时读数
 ```
 
 火情上报由**视频流终端**承担（每10s一条，无火情 false / 有火情 true）：
 
 ```bash
 python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired \
-    --interval 10 --duration 600          # 视频流终端火情上报（默认 false）
+    --interval 10 --duration 600 --fg     # 视频流终端火情上报（默认 false）
 python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired \
-    --count 1 --fire true                 # 有火情单条（--fire 切换布尔载荷）
+    --count 1 --fire true --fg            # 有火情单条（--fire 切换布尔载荷）
 ```
 
-**单终端合并形态（`--background`，2.2.4 默认）**：三台终端合并为同一终端
-依次输入三条业务发送指令，每条只打印一行 `[LAUNCH] 业务发送启动`（含
-后台 pid 与日志路径）即返回提示符；实际发送在后台进行，`[SEND]` 明细与
-`[SUMMARY]` 写 `--bg-log` 日志文件（默认 `.state/sender-<biz>-<时间>.log`），
-按 `--duration`/`--count` 自行结束：
+**单终端合并形态（2.2.4 默认）**：三台终端合并为同一终端依次输入三条
+业务发送指令，每条只打印一行 `[LAUNCH] 业务发送启动`（含后台 pid 与
+日志路径）即返回提示符；实际发送在后台进行，`[SEND]` 明细与 `[SUMMARY]`
+写 `--bg-log` 日志文件（默认 `.state/sender-<biz>-<时间>.log`），按
+`--duration`/`--count` 自行结束，未限时则持续发送（kill `[LAUNCH]` 行
+的 pid 停止）：
 
 ```bash
 python3 send_business.py --device-id 182D48D7 --biz-type video --link wired \
-    --duration 12 --interval 1 --background
+    --duration 12 --interval 1
 ```
 
 发送审计：`device/.state/sent.jsonl`（每条报文全量），`counters.json` 保证
@@ -120,7 +124,7 @@ export EDGE_HOST=<边缘网关IP>          # 默认 127.0.0.1
 
 1. **前提**：会话复位（`init_link_connect.sh --reset`，三扇门全关）后单独
    打开转发通道（2.2.4 需云端一致性核对）；接入门保持关闭。
-2. **开闸前单终端依次启动三路业务**（`--background`：每条指令只打印一行
+2. **开闸前单终端依次启动三路业务**（默认后台：每条指令只打印一行
    `[LAUNCH] 业务发送启动` 即返回提示符，三路业务后台并发发送）：视频流
    （`--biz-type video --link wired`，182D48D7）/ 传感器
    （`--biz-type sensor --link wifi`，3C15DB07）/ 环境监测

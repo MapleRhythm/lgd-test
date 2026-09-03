@@ -44,24 +44,24 @@ section '2.2.3  接入链路时延实测（ping_link_test）'
 ./ping_link.sh
 
 section '2.2.3  业务数据发送（start_test）'
-python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" --count "$START_COUNT"
+python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" --count "$START_COUNT" --fg
 
 section '2.2.3  边缘网关服务日志查询（query_service_log，在边缘网关执行）'
 on_edge "tail -n 40 '$EDGE_LOG'"
 
 section '2.2.3  持续传输（keep_transfer，仅有线）'
 python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" \
-  --link wired --duration "$KEEP_DURATION" --interval 1
+  --link wired --duration "$KEEP_DURATION" --interval 1 --fg
 
 section '2.2.3  多模态并发传输（multi_link_bandwidth：Wi-Fi/蓝牙/有线）'
 python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" \
-  --link all --duration "$BANDWIDTH_DURATION" --interval 1
+  --link all --duration "$BANDWIDTH_DURATION" --interval 1 --fg
 
 section '2.2.3  建立边缘网关->云端转发通道（edge_forward --start，在边缘网关执行）'
 on_edge "./edge_forward.sh --start"
 
 section '2.2.3  转发通道建立后业务数据端到端发送（start_test）'
-python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" --count "$START_COUNT"
+python3 send_business.py --host "$EDGE_HOST" --device-id "$DEVICE_ID" --count "$START_COUNT" --fg
 
 section '2.2.3  端到端链路数据查询（query_link_data，生产只读验证）'
 bash "$SCRIPT_DIR/../cloud/query_relay_state.sh"

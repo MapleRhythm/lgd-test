@@ -17,12 +17,13 @@
   传感器终端   --biz-type sensor --link wifi    （Wi-Fi）
   环境监测终端 --biz-type env --link rotate     （Wi-Fi/蓝牙/有线逐条轮换）
 
-单终端合并形态（--background，2.2.4 生产流程默认）：同一终端依次输入三条
-业务发送指令，每条只打印一行 [LAUNCH] 业务发送启动日志即返回提示符，
-实际发送在后台进行（[SEND]/[SUMMARY] 写 --bg-log 日志文件，默认
-<state>/sender-<biz>-<时间>.log；按 --duration/--count 自行结束）：
+单终端合并形态（默认，2.2.4 生产流程）：同一终端依次输入三条业务发送
+指令，每条只打印一行 [LAUNCH] 业务发送启动日志即返回提示符，实际发送在
+后台进行（[SEND]/[SUMMARY] 写 --bg-log 日志文件，默认
+<state>/sender-<biz>-<时间>.log）。未给 --count/--duration 时持续发送，
+直到 kill [LAUNCH] 行打印的 pid；--fg/--foreground 回前台直跑：
   python3 send_business.py --device-id 182D48D7 --biz-type video --link wired \
-      --duration 12 --interval 1 --background
+      --duration 12 --interval 1
 
 火情上报由视频流终端承担（每10s一条，无火情 false / 有火情 true）：
   ./send_business.py --device-id 182D48D7 --biz-type fire --link wired \
@@ -291,7 +292,12 @@ def run_multi(args) -> int:
 
 
 def _launch_line(args, log_path: str, pid: int | None = None) -> str:
-    amount = ("count=%d" % args.count) if args.count else ("duration=%gs" % args.duration)
+    if args.count:
+        amount = "count=%d" % args.count
+    elif args.duration:
+        amount = "duration=%gs" % args.duration
+    else:
+        amount = "持续"
     pid_part = " pid=%d" % pid if pid is not None else ""
     return ("[LAUNCH] 业务发送启动：biz=%s device=%s link=%s %s interval=%gs%s 日志=%s"
             % (args.biz_type, args.device_id, args.link, amount, args.interval,
@@ -303,7 +309,8 @@ def _enter_background(args) -> int | None:
 
     父进程输出 [LAUNCH]（含后台进程 pid 与日志路径）后立即退出，终端
     马上可以输入下一条指令；子进程脱离会话，把 [SEND]/[SUMMARY] 全部
-    写入 --bg-log 日志文件，按 --duration/--count 自行结束。
+    写入 --bg-log 日志文件，按 --duration/--count 自行结束（未限时则
+    持续发送，直到 kill [LAUNCH] 行打印的 pid）。
     返回 None 表示当前是子进程，继续正常发送流程。
     """
     if not hasattr(os, "fork"):
@@ -351,16 +358,19 @@ def main() -> int:
     parser.add_argument("--link", default="wired",
                         help="接入链路标记：wifi|bluetooth|wired|all|rotate"
                              "（all=三链路并发，rotate=逐条轮换）")
-    parser.add_argument("--count", type=int, default=0, help="定量发送条数（0=不限，按 duration）")
-    parser.add_argument("--duration", type=float, default=0.0, help="持续发送秒数（0=按 count）")
+    parser.add_argument("--count", type=int, default=0, help="定量发送条数（与 --duration 都不给则持续发送）")
+    parser.add_argument("--duration", type=float, default=0.0, help="持续发送秒数（与 --count 都不给则持续发送）")
     parser.add_argument("--interval", type=float, default=1.0, help="发送间隔秒（默认 1.0）")
     parser.add_argument("--value", default=None, help="固定业务读数（真实传感器单值）")
     parser.add_argument("--values-file", default=None, help="业务读数文件，逐行喂入（真实传感器流）")
     parser.add_argument("--fire", choices=("true", "false"), default="false",
                         help="火情布尔载荷（fire 业务；默认 false 无火情，true=有火情）")
     parser.add_argument("--background", action="store_true",
-                        help="单终端合并形态：打印业务发送启动日志后转后台发送，"
-                             "明细/汇总写 --bg-log（按 --duration/--count 自行结束）")
+                        help="后台发送（默认即后台；保留以兼容显式写法）：打印"
+                             "业务发送启动日志后转后台，明细/汇总写 --bg-log")
+    parser.add_argument("--fg", "--foreground", dest="background", action="store_false",
+                        help="前台直跑：[SEND]/[SUMMARY] 直接打印到终端")
+    parser.set_defaults(background=True)
     parser.add_argument("--bg-log", default=None, metavar="PATH",
                         help="后台模式日志文件（默认 <state>/sender-<biz>-<时间>.log）")
     args = parser.parse_args()
@@ -369,8 +379,6 @@ def main() -> int:
         if args.duration <= 0:
             print("--link all 需要 --duration", file=sys.stderr)
             return 2
-    if args.count <= 0 and args.duration <= 0:
-        args.count = 1
     if args.background:
         parent_rc = _enter_background(args)
         if parent_rc is not None:

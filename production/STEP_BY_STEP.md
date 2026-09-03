@@ -74,7 +74,7 @@ export EDGE_HOST=127.0.0.1 EDGE_JSON_PORT=18888 EDGE_MEDIA_PORT=17777
 ### 步骤 4 业务数据发送（start_test）
 
 ```bash
-python3 send_business.py --count 5
+python3 send_business.py --count 5 --fg
 ```
 
 预期：5 行 `[SEND] link=wired msg_id=...`，末尾 `[SUMMARY] 发送 5 条，失败 0 次`；
@@ -92,13 +92,13 @@ tail -n 40 ../edge/gateway.log
 ### 步骤 6 持续传输（keep_transfer，仅有线）
 
 ```bash
-python3 send_business.py --link wired --duration 600 --interval 1   # 演示可 --duration 60
+python3 send_business.py --link wired --duration 600 --interval 1 --fg   # 演示可 --duration 60
 ```
 
 ### 步骤 7 多模态并发传输（multi_link_bandwidth）
 
 ```bash
-python3 send_business.py --link all --duration 5
+python3 send_business.py --link all --duration 5 --fg
 ```
 
 预期：wifi / bluetooth / wired 各自条数与 B/s，加合计一行。
@@ -118,7 +118,7 @@ python3 send_business.py --link all --duration 5
 ### 步骤 9 转发通道建立后业务数据端到端发送（start_test）
 
 ```bash
-python3 send_business.py --count 5
+python3 send_business.py --count 5 --fg
 ```
 
 终端 A 此时是向 47.99.47.169:11500 的转发日志。
@@ -182,10 +182,10 @@ cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/edge
 cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/device
 export EDGE_HOST=127.0.0.1 EDGE_JSON_PORT=18888
 
-# 同一终端顺序输入三条业务发送指令（--background：一行启动日志即返回提示符）
-python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 5 --interval 1 --background
-python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 5 --interval 1 --background
-python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 5 --interval 1 --background
+# 同一终端顺序输入三条业务发送指令（默认后台：一行启动日志即返回提示符）
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 5 --interval 1
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 5 --interval 1
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 5 --interval 1
 ```
 
 预期：每条指令只打印一行 `[LAUNCH] 业务发送启动...`（含后台 pid 与日志
@@ -204,12 +204,12 @@ python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --
 ## 步骤 3 开闸后再发 + 视频流终端火情上报
 
 ```bash
-python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 12 --interval 1 --background
-python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 12 --interval 1 --background
-python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 12 --interval 1 --background
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 12 --interval 1
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 12 --interval 1
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 12 --interval 1
 
 # 火情随视频流终端上报：同一设备身份、有线链路，每 10s 一条（默认 false）
-python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --interval 10 --duration 12 --background
+python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --interval 10 --duration 12
 ```
 
 预期：同步骤 1 的单终端形态（每条指令一行 `[LAUNCH]` 即返回）。终端 A

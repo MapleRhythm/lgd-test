@@ -30,11 +30,11 @@ section '2.2.3'
 ./query_link_data.sh
 
 section '2.2.4'
-# 回归脚本用 --fg 前台直跑（交互终端里默认是后台启动，只回显启动行）；
-# 前三条未给条数/时长，按生产包 count=1 兜底各发一条即自行结束。
-./start_video_stream.sh --fg
-./start_sensor_data.sh --fg
-./start_env_data.sh --fg
+# 回归脚本用 --fg 前台直跑（交互终端里默认后台持续发送，只回显 [LAUNCH] 行）；
+# 前三条开闸前发送，--count 3 限量（持续发送语义下必须显式限量）。
+./start_video_stream.sh --fg --count 3
+./start_sensor_data.sh --fg --count 3
+./start_env_data.sh --fg --count 3
 ./multi_source_access.sh
 # 开闸后补一轮正常发送（交互流程中发送器持续跨越开闸时点，此处等效模拟）
 ./start_video_stream.sh --fg --duration 3

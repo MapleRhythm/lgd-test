@@ -97,16 +97,16 @@ section '4  接入链路时延实测'
 bash "$PROD_DIR/device/ping_link.sh"
 
 section '5  业务数据发送（start_test）'
-$SEND --count "$START_COUNT"
+$SEND --count "$START_COUNT" --fg
 
 section '6  边缘网关服务日志'
 tail -n 30 "$STATE_DIR/gateway.log"
 
 section '7  持续传输（keep_transfer，仅有线）'
-$SEND --link wired --duration "$KEEP_DURATION" --interval 1
+$SEND --link wired --duration "$KEEP_DURATION" --interval 1 --fg
 
 section '8  多模态并发传输（Wi-Fi/蓝牙/有线）'
-$SEND --link all --duration "$BANDWIDTH_DURATION" --interval 1
+$SEND --link all --duration "$BANDWIDTH_DURATION" --interval 1 --fg
 
 section '9  建立边缘网关->云端转发通道（真实流量将发往生产中转）'
 bash "$PROD_DIR/edge/edge_forward.sh" --start
@@ -114,7 +114,7 @@ sleep 2
 tail -n 5 "$STATE_DIR/gateway.log"
 
 section '10  转发通道建立后业务数据端到端发送'
-$SEND --count "$START_COUNT"
+$SEND --count "$START_COUNT" --fg
 
 section '11  端到端链路数据查询（生产只读验证）'
 bash "$PROD_DIR/cloud/query_relay_state.sh"

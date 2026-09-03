@@ -1437,7 +1437,12 @@ def _launch_line(args, source_kind: str, log_path: str, pid: int | None = None) 
     # 与生产包 send_business.py 的 [LAUNCH] 行同格式（biz/device/link/量/间隔/pid/日志）。
     base_device_id, links = SOURCE_DEFAULTS[source_kind]
     link = links[0] if len(links) == 1 else "rotate"
-    amount = ("count=%d" % args.count) if args.count else ("duration=%gs" % args.duration)
+    if args.count:
+        amount = "count=%d" % args.count
+    elif args.duration:
+        amount = "duration=%gs" % args.duration
+    else:
+        amount = "持续"
     pid_part = " pid=%d" % pid if pid is not None else ""
     return ("[LAUNCH] 业务发送启动：biz=%s device=%s link=%s %s interval=%gs%s 日志=%s"
             % (source_kind, args.device_id or base_device_id, link, amount,
@@ -1445,9 +1450,9 @@ def _launch_line(args, source_kind: str, log_path: str, pid: int | None = None) 
 
 
 def _enter_background(args, source_kind: str) -> int | None:
-    """后台发送（单终端合并形态）：父进程只打印一行 [LAUNCH] 即退出，子进程
-    setsid 后把标准输出重定向到日志继续发送——与生产包 send_business.py
-    --background 的实现一致（含行缓冲与默认日志路径）。"""
+    """后台发送（单终端合并形态，默认形态）：父进程只打印一行 [LAUNCH] 即
+    退出，子进程 setsid 后把标准输出重定向到日志继续发送——与生产包
+    send_business.py 的实现一致（含行缓冲与默认日志路径）。"""
     if not hasattr(os, "fork"):
         print("[LAUNCH][ERROR] --background 仅支持 Linux（真机/WSL 部署）", file=sys.stderr)
         return 2
@@ -1475,9 +1480,8 @@ def _enter_background(args, source_kind: str) -> int | None:
 
 
 def source_entry(args, source_kind: str) -> int:
-    # 与生产包 send_business.py 同步：未给 --count/--duration 时默认只发一条。
-    if not args.count and not args.duration:
-        args.count = 1
+    # 与生产包 send_business.py 同步：默认后台发送；未给 --count/--duration
+    # 时持续发送，直到 kill [LAUNCH] 行打印的 pid。
     if getattr(args, "background", False):
         parent_rc = _enter_background(args, source_kind)
         if parent_rc is not None:
@@ -2196,16 +2200,19 @@ def build_parser():
     for command, source_kind in (("start-video", "video"), ("start-sensor", "sensor"), ("start-env", "env"),
                                  ("start-wind", "wind")):
         item = sub.add_parser(command)
-        # 大纲 2.2.4：三个端侧 start 命令默认只发一条（与生产包 send_business.py
-        # 的 count=1 兜底一致）；持续发送显式给 --duration。start-wind 为风速
-        # 模拟（DEV-001，sensor 业务），行为相同。
+        # 大纲 2.2.4：三个端侧 start 命令默认后台持续发送（与生产包
+        # send_business.py 一致），--count/--duration 限量，--fg 前台直跑。
+        # start-wind 为风速模拟（DEV-001，sensor 业务），行为相同。
         add_common_loop_options(item, count=None, duration=None, interval=1.0)
         if source_kind == "video":
             # 视频流终端随流每 10s 上报一条火情；--no-fire-report 仅诊断时关闭。
             item.add_argument("--no-fire-report", dest="no_fire_report", action="store_true")
-        # 与生产包 send_business.py 同步的后台发送：父进程一行 [LAUNCH] 即返回。
+        # 与生产包 send_business.py 同步：默认后台发送，父进程一行 [LAUNCH] 即返回。
         item.add_argument("--background", action="store_true",
-                          help="后台发送：只打印一行 [LAUNCH] 即返回（单终端合并形态）")
+                          help="后台发送（默认即后台；保留以兼容显式写法）")
+        item.add_argument("--fg", "--foreground", dest="background", action="store_false",
+                          help="前台直跑：SOURCE 横幅与进度直接打印到终端")
+        item.set_defaults(background=True)
         item.add_argument("--bg-log", default=None,
                           help="后台日志路径（默认 STATE_DIR/sender-<biz>-<时间>.log）")
         item.set_defaults(function=lambda args, source_kind=source_kind: source_entry(args, source_kind))
