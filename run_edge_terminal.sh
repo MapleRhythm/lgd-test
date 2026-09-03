@@ -110,18 +110,30 @@ rm -f "$GATE_MARKER" "$FILTER_MARKER"
 STATE_FILE="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/state.json"
 if [[ -f "$STATE_FILE" ]]; then
   python3 - "$STATE_FILE" <<'PY'
-import json, sys
+import json, os, sys
 path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as handle:
-    state = json.load(handle)
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        state = json.load(handle)
+except (OSError, ValueError):
+    # 空文件/半截文件（上次启动重写门状态时在 /mnt 上被中断截断）：
+    # 会话状态已不可用，而开边缘终端本就是开新会话——直接删除，
+    # 让后续命令按“无状态文件=全新会话”起步，别把 load_state 卡死在
+    # “存在但读不出”的拒绝分支上。
+    os.unlink(path)
+    sys.exit(0)
 changed = False
 for key in ("multi_source_enabled", "whitelist_filter_enabled"):
     if state.get(key):
         state[key] = False
         changed = True
 if changed:
-    with open(path, "w", encoding="utf-8") as handle:
+    # tmp + os.replace 原子替换（与运行时 save_state 同法）：杜绝
+    # open("w") 先截断、写一半被打断留下 0 字节 state.json。
+    tmp = path + ".gatetmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 PY
 fi
 
