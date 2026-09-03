@@ -1708,8 +1708,25 @@ def cmd_query_cloud_log(args) -> int:
         return True
 
     records = [item for item in records if keep(item)]
-    rows = [(item.get("device_id", ""), item.get("biz_type", ""), item.get("msg_id", ""), item.get("link_id", ""), item.get("classification", ""), item.get("parse_status", "")) for item in records[-args.limit:]]
-    table(("Device", "Business", "Message", "Link", "Class", "Parse"), rows or [("-", "-", "-", "-", "-", "no records")])
+
+    # 按上行链路分三张表（5G/卫星/短波）：云端记录的 link_id 即边缘→云端
+    # 的承载通道（一条报文走多通道时各通道各记一条）；链路名并入表题，
+    # 不在行内重复。--limit 作用于每张表（各通道最近 N 条）。
+    columns = ("Device", "Business", "Message", "Class", "Parse")
+    for index, (label, channel) in enumerate(
+        (("5G", "5g"), ("卫星", "satellite"), ("短波", "shortwave"))
+    ):
+        channel_rows = [
+            (item.get("device_id", ""), item.get("biz_type", ""),
+             item.get("msg_id", ""), item.get("classification", ""),
+             item.get("parse_status", ""))
+            for item in records
+            if str(item.get("link_id", "")) == channel
+        ][-args.limit:]
+        if index:
+            print()
+        info("{} 上行消息".format(label))
+        table(columns, channel_rows or [("-", "-", "-", "-", "no records")])
     if not getattr(args, "verify", False):
         # 默认不直接显示核对表：需要云端-边缘一致性核对时显式加 --verify。
         # cloud-query 无此旗标、经 fall-through 复用本函数时同样只显示日志表。

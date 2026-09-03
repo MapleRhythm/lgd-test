@@ -284,7 +284,7 @@ PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh
 ./start_env_data.sh               # 环境监测业务（默认后台持续发送）
 ./multi_source_access.sh          # 边缘网关终端：此后边缘才开始受理端侧数据
 ./query_service_log.sh            # 边缘网关终端
-./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（默认只显示日志表）
+./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（默认按上行链路分 5G/卫星/短波三张表）
 ./trust_access_add_whitelist.sh 182D48D7 3C15DB07 ILLEGAL-SENSOR   # 拉取并打印服务器白名单；执行后过滤生效
 ./start_test.sh --device-id UNKNOWN-001
 ./trust_access_calculate.sh
