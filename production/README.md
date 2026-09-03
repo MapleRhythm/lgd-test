@@ -24,9 +24,9 @@
 | 目录 | 部署到 | 内容 |
 |---|---|---|
 | `edge/` | 边缘网关真机 | `gateway_merged.py`（解包后的现网源码）、`run_gateway.sh`、`init_link_connect.sh`、`edge_forward.sh`；2.2.4 三步：`multi_source_access.sh`、`trust_access_add_whitelist.sh`、`trust_access_calculate.sh` |
-| `device/` | 端侧设备真机 | `send_business.py`（真机协议发送器）、`check_link.sh`、`ping_link.sh`、`run_2_2_3.sh`、`run_2_2_4.sh` |
+| `device/` | 端侧设备真机 | `send_business.py`（真机协议发送器）、`check_link.sh`、`ping_link.sh`、`run_2_2_3.sh`、`run_2_2_4.sh`（一键版，联调自检用） |
 | `cloud/` | 任意位置 | `query_relay_state.sh`（生产只读验证） |
-| 根目录 | 联调机 | `run_2_2_3_production.sh`、`run_2_2_4_production.sh`（单机联调，端口与演示环境错开） |
+| 根目录 | 联调机 | `STEP_BY_STEP.md`（逐步执行手册，正式流程）、`run_2_2_3_production.sh`、`run_2_2_4_production.sh`（单机联调自检，端口与演示环境错开） |
 
 ## 边缘网关（真机）
 
@@ -34,6 +34,9 @@
 cd edge
 ./run_gateway.sh                    # 前台运行，参数全部用 edge_config 生产默认值
 ```
+
+此终端即**终端 A**（保持前台运行，屏幕即日志）；后续逐步命令见下一节与
+[STEP_BY_STEP.md](STEP_BY_STEP.md)。
 
 默认即生产：中转 `47.99.47.169:11500`、白名单 `http://<cloud-host>:11502`（30s 周期）、
 宝通 `192.168.2.1:9100`、卫星 `/dev/ttyUSB0@115200`、监听 `0.0.0.0:8888/7777`。
@@ -64,14 +67,37 @@ EDGE_DISABLE_SATELLITE=1 EDGE_BAOTONG_HOST=127.0.0.1 EDGE_BAOTONG_PORT=19118 ./r
 
 ## 端侧设备（真机）
 
+**现场按大纲逐步执行，不用一键脚本**（`run_2_2_3.sh` / `run_2_2_4.sh`
+仅联调自检用）。两个终端：**A = 边缘网关**（上一节 `run_gateway.sh`
+前台运行）、**B = 端侧设备**；完整手册（每步预期输出、真机/台架参数
+差异）见 [STEP_BY_STEP.md](STEP_BY_STEP.md)。终端 B 准备：
+
 ```bash
 cd device
 export EDGE_HOST=<边缘网关IP>        # 默认 127.0.0.1
-./run_2_2_3.sh                       # 大纲 2.2.3 全流程（设备侧）
 ```
 
-可选 `EDGE_SSH=user@edge-host` + `EDGE_REMOTE_DIR=<边缘上的edge目录>`：
-日志查询与转发激活两步自动经 ssh 到边缘网关执行，否则打印人工指令。
+大纲 2.2.3 逐步命令（注释即大纲步骤；标"边缘机"的在终端 A 执行——
+标记文件落在边缘机本地，门命令必须在边缘机上跑才作用到网关）：
+
+```bash
+../edge/init_link_connect.sh                                             # 1  初始化接入链路（边缘机）
+./check_link.sh                                                          # 2  接入链路连通性检查
+./ping_link.sh                                                           # 3  接入链路时延实测
+python3 send_business.py --count 5 --fg                                  # 4  业务数据发送
+tail -n 40 ../edge/gateway.log                                           # 5  服务日志查询（前台运行直接看终端A）
+python3 send_business.py --link wired --duration 600 --interval 1 --fg   # 6  持续传输（仅有线）
+python3 send_business.py --link all --duration 5 --fg                    # 7  多模态并发传输
+../edge/edge_forward.sh --start                                          # 8  建立转发通道（边缘机）
+python3 send_business.py --count 5 --fg                                  # 9  端到端业务发送
+bash ../cloud/query_relay_state.sh                                       # 10 端到端链路数据查询（只读）
+```
+
+> 步骤 8 之前转发门未开，**没有任何字节发往中转**（步骤 4–7 报文在网关
+> 队列排队，上限 1000 条），可在任意一步停下检查；步骤 8 开门后真实业务
+> 流即发往生产中转 47.99.47.169（借用白名单设备 ID）。不希望积压一并
+> 上送时，先在终端 A Ctrl-C 重启网关清空队列再 `--start`。
+> 收尾：`../edge/edge_forward.sh --stop`，终端 A Ctrl-C 停网关。
 
 单发 / 定制（**默认后台持续发送**；下列单发/调试场景用 `--fg` 回前台直看
 `[SEND]`/`[SUMMARY]`，不加 `--count`/`--duration` 则持续发送直到 kill
@@ -122,37 +148,86 @@ msg_id/event_id 跨运行连续，可与中转 STAT 计数对账。
 
 门语义与开发侧一致：**接入门**打开前，端侧报文只计接收统计（`gate_drop`）
 不受理、不转发、不追溯改判；**trust_access_add_whitelist** 执行前不过滤
-名单（全部放行）。真机三节点在设备侧跑全流程：
+名单（全部放行）。真机三节点同样**逐步执行**（步骤号与
+[STEP_BY_STEP.md](STEP_BY_STEP.md) 下半部分一致；`run_2_2_4.sh` /
+`run_2_2_4_production.sh` 一键版仅联调自检用）。
+
+**步骤 0 前提（边缘机终端 A，生产包 `edge/` 目录）**——会话复位
+（`init_link_connect.sh --reset`，三扇门全关）后单独打开转发通道
+（2.2.4 需云端一致性核对），接入门保持关闭：
 
 ```bash
-cd device
-export EDGE_HOST=<边缘网关IP>          # 默认 127.0.0.1
-./run_2_2_4.sh                         # 大纲 2.2.4 全流程（设备侧）
+./init_link_connect.sh --reset
+./edge_forward.sh --start
 ```
 
-流程（`run_2_2_4.sh` 与单机版 `run_2_2_4_production.sh` 同构）：
+端侧（终端 B，`cd device` + `export EDGE_HOST=<边缘网关IP>`）逐步：
 
-1. **前提**：会话复位（`init_link_connect.sh --reset`，三扇门全关）后单独
-   打开转发通道（2.2.4 需云端一致性核对）；接入门保持关闭。
-2. **开闸前单终端依次启动三路业务**（默认后台：每条指令只打印一行
-   `[LAUNCH] 业务发送启动` 即返回提示符，三路业务后台并发发送）：视频流
-   （`--biz-type video --link wired`，182D48D7）/ 传感器
-   （`--biz-type sensor --link wifi`，3C15DB07）/ 环境监测
-   （`--biz-type env --link rotate`，990E261B，Wi-Fi/蓝牙/有线逐条轮换）——
-   本轮报文只计 `gate_drop`。
-3. **`edge/multi_source_access.sh`**：打开多源接入门，边缘开始受理端侧数据。
-4. **开闸后再发 + 火情上报**：同一终端再输入三条业务指令与火情上报指令
-   （视频流终端随流每 10s 一条 fire 报文，同一设备身份、有线链路，默认
-   无火情 false），本轮起受理并转发上云。
-5. **服务日志与只读核对**：tail 网关日志（query_service_log）+
-   `cloud/query_relay_state.sh` + `device/.state/sent.jsonl` 对账。
-6. **`edge/trust_access_add_whitelist.sh <设备ID...>`**：从中转 `11502` 只读
-   拉取白名单并打印（指定 ID 逐个在册校验，不在册给 WARN），随后名单过滤
-   生效；网关经标记文件感知，无需重启。
-7. **名单外设备发送**：`ILLEGAL-SENSOR` / `UNKNOWN-001`——边缘拒收，网关
-   日志 `[WHITELIST][BLOCK] ... reason=not_in_whitelist`，计入 `whitelist_drop`。
-8. **`edge/trust_access_calculate.sh`**：从网关日志统计门状态公告、拒收明细
-   与 `whitelist_drop`/`gate_drop` 周期计数（只看计数与设备 ID，不看业务内容）。
+**步骤 1 开闸前单终端依次启动三路业务**（默认后台：每条指令一行
+`[LAUNCH]` 即返回提示符，三路并发）——视频流（182D48D7，有线）/
+传感器（3C15DB07，Wi-Fi）/ 环境监测（990E261B，Wi-Fi/蓝牙/有线逐条
+轮换）；本轮报文只计 `gate_drop`：
+
+```bash
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 5 --interval 1
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 5 --interval 1
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 5 --interval 1
+```
+
+**步骤 2 多源接入门打开（边缘机终端 A）**：
+
+```bash
+./multi_source_access.sh          # --status 可查门状态
+```
+
+**步骤 3 开闸后再发 + 视频流终端火情上报**（同一终端四条；fire 报文
+每 10s 一条，默认无火情 false，加 `--fire true` 演练有火情）：
+
+```bash
+python3 send_business.py --device-id 182D48D7 --biz-type video --link wired  --duration 12 --interval 1
+python3 send_business.py --device-id 3C15DB07 --biz-type sensor --link wifi  --duration 12 --interval 1
+python3 send_business.py --device-id 990E261B --biz-type env    --link rotate --duration 12 --interval 1
+python3 send_business.py --device-id 182D48D7 --biz-type fire --link wired --interval 10 --duration 12
+```
+
+**步骤 4 服务日志查询（query_service_log）**：直接看终端 A 屏幕，或
+`tail -n 40 ../edge/gateway.log`。
+
+**步骤 5 端到端链路数据查询（query_link_data，生产只读）**：
+
+```bash
+bash ../cloud/query_relay_state.sh
+tail -n 5 .state/sent.jsonl      # 端侧发送审计，与中转 STAT 计数对账
+```
+
+**步骤 6 可信接入·白名单拉取并生效（边缘机终端 A）**：
+
+```bash
+./trust_access_add_whitelist.sh 182D48D7 3C15DB07 990E261B
+```
+
+从中转 `11502` 只读拉取白名单并打印（指定 ID 逐个在册校验，不在册给
+WARN），随后名单过滤生效；网关经标记文件感知，无需重启。
+
+**步骤 7 名单外设备发送**：
+
+```bash
+python3 send_business.py --device-id ILLEGAL-SENSOR --count 5
+python3 send_business.py --device-id UNKNOWN-001   --count 5
+```
+
+发送本身成功（TCP 层），但边缘拒收——网关日志
+`[WHITELIST][BLOCK] ... reason=not_in_whitelist`，计入 `whitelist_drop`。
+
+**步骤 8 可信接入统计（边缘机终端 A）**：
+
+```bash
+EDGE_LOG=gateway.log ./trust_access_calculate.sh
+```
+
+从网关日志统计门状态公告、拒收明细与 `whitelist_drop`/`gate_drop`
+周期计数（只看计数与设备 ID，不看业务内容；日志留档路径不同时用
+`EDGE_LOG=<路径>` 指定）。
 
 ### 2.2.4 直发模式（短波/卫星联调）
 
@@ -193,15 +268,15 @@ bash cloud/query_relay_state.sh        # RELAY_HOST 默认 47.99.47.169
 live 查询表（演示版 query_link_data 的下半张表）在生产包中没有对应物，
 以中转日志 STAT 计数为准。
 
-## 单机联调（不部署真机时）
+## 单机联调自检（不部署真机时）
+
+一键脚本只用于联调机自检预演（同机拉起生产网关 + 跑通全流程）；**正式
+执行一律按 [STEP_BY_STEP.md](STEP_BY_STEP.md) 逐步输入命令**：
 
 ```bash
-./run_2_2_3_production.sh     # 大纲 2.2.3 全流程
-./run_2_2_4_production.sh     # 大纲 2.2.4 全流程
+./run_2_2_3_production.sh     # 大纲 2.2.3 全流程（自检）
+./run_2_2_4_production.sh     # 大纲 2.2.4 全流程（自检）
 ```
-
-想逐条命令手动执行（每步可见、可在转发激活前停下纯演练），见
-[STEP_BY_STEP.md](STEP_BY_STEP.md)。
 
 同机拉起生产网关（卫星关闭、宝通指本机）+ 全流程；端口 18888/17777/19118
 与演示三终端完全错开，占用即退出。**转发通道一经激活，受理后的真实业务流
