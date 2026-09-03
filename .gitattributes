@@ -1,0 +1,2 @@
+# bash 脚本必须 LF:git archive 与 Linux 检出都不再产生 CRLF(bash 坑根治)
+*.sh text eol=lf
