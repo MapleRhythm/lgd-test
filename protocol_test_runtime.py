@@ -1419,6 +1419,24 @@ def cmd_query_link_data(args) -> int:
             state_label = "UP"
         rows.append((LINK_LABELS[link_id], state_label))
     table(("Uplink", "State"), rows)
+    # 大纲 2.2.3 步骤10：查询 5G 信道、短波工控设备及卫星接入模块接收到的
+    # 业务数据——与云端日志查询同格式，按上行链路分三张表（表题即接收方，
+    # 对齐大纲措辞）；--limit 作用于每张表（各链路最近 N 条）。
+    print("")
+    columns = ("Device", "Business", "Message", "Class", "Parse")
+    for index, (label, channel) in enumerate(
+        (("5G 信道", "5g"), ("短波工控设备", "shortwave"), ("卫星接入模块", "satellite"))
+    ):
+        channel_rows = [
+            (item.get("device_id", ""), item.get("biz_type", ""), item.get("msg_id", ""),
+             item.get("classification", ""), item.get("parse_status", ""))
+            for item in cloud
+            if str(item.get("link_id", "")) == channel
+        ][-args.limit:]
+        if index:
+            print()
+        info("{} 接收的业务数据".format(label))
+        table(columns, channel_rows or [("-", "-", "-", "-", "no records")])
     if not cloud_live_enabled():
         accepted_ids = {item.get("msg_id") for item in read_records("auth.jsonl") if item.get("accepted")}
         sent_ids = {item.get("msg_id") for item in sent if item.get("msg_id") in accepted_ids}
