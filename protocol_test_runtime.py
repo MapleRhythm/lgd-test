@@ -2106,10 +2106,12 @@ def cmd_uplink_transfer(args) -> int:
     for _ in range(args.count):
         for index, (device_id, biz_type) in enumerate(jobs):
             result = emit_message(device_id, biz_type, ingress_link_for(index), transport="TCP")
-            rows.append((result["msg_id"], biz_type, ",".join(result.get("forwarded", [])) or "-", result.get("reason", "")))
+            # msg_id 不进演示表（细节只进 jsonl 台账，可逐条对账），
+            # 表格只表现大纲约定：业务类别 -> 实际上行链路。
+            rows.append((biz_type, ",".join(result.get("forwarded", [])) or "-", result.get("reason", "")))
             if result.get("shortwave_answer"):
                 rotations.append((result["msg_id"], result["shortwave_answer"], result["shortwave_next"]))
-    table(("Message", "Business", "Actual link", "Decision"), rows)
+    table(("Business", "Actual link", "Decision"), rows)
     for msg_id, answered, upcoming in rotations:
         info("shortwave offline rotate: {} answered {} (next {})".format(msg_id, answered, upcoming))
     ok("uplink policy executed for {} business message(s)".format(len(rows)))
