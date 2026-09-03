@@ -752,14 +752,56 @@ def live_recent_received(limit=3, rounds=4, gap=0.9):
     return records[-limit:]
 
 
+def _sat_live_cache_path():
+    return STATE_DIR / "sat_live_cache.json"
+
+
+def _sat_live_cache_load():
+    """卫星通道 /latest.json 的跨进程采样缓存（查询命令是独立进程，模块级
+    缓存无效，落文件共享）。云端 SAT 页是唯一会向云端终端打印访问日志
+    （HTTP-SAT 行）的通道页，缓存它即可把弹日志的间隔拉长；三条边缘网关
+    通道不打印访问日志，保持逐次实时采样不变。"""
+    try:
+        ttl = float(os.getenv("PROTOCOL_TEST_SAT_LIVE_CACHE_S", "60"))
+    except ValueError:
+        ttl = 60.0
+    if ttl <= 0:
+        return None, ttl
+    try:
+        data = json.loads(_sat_live_cache_path().read_text(encoding="utf-8"))
+        entry = data.get("entry")
+        if (isinstance(data.get("fetched_at"), (int, float))
+                and time.time() - data["fetched_at"] <= ttl
+                and isinstance(entry, dict) and entry.get("channel") == "satellite"):
+            return entry, ttl
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    return None, ttl
+
+
+def _sat_live_cache_store(entry):
+    try:
+        _sat_live_cache_path().parent.mkdir(parents=True, exist_ok=True)
+        _sat_live_cache_path().write_text(
+            json.dumps({"fetched_at": time.time(), "entry": entry}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # 缓存写失败只是退回逐次采样，不影响查询
+
+
 def live_cloud_channels_state():
     host = os.getenv("PROTOCOL_TEST_CLOUD_HTTP_HOST", "127.0.0.1")
     states = []
+    sat_cached, _ttl = _sat_live_cache_load()
     for name, http_port, uplink_port, file_name in CLOUD_LIVE_CHANNELS:
         entry = {
             "channel": name, "http_port": http_port, "uplink_port": uplink_port,
             "reachable": False, "seq": None, "origin": "-", "record": None,
         }
+        if name == "satellite" and sat_cached is not None:
+            states.append(sat_cached)
+            continue
         try:
             with urllib.request.urlopen(
                 "http://{}:{}/latest.json".format(host, http_port), timeout=2.0
@@ -789,6 +831,8 @@ def live_cloud_channels_state():
                     entry.update(origin="file", record=obj)
             except (OSError, ValueError):
                 pass
+        if name == "satellite":
+            _sat_live_cache_store(entry)
         states.append(entry)
     return states
 
