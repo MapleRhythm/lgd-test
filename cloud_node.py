@@ -22,6 +22,10 @@ _PORT = re.compile(r"(?<!\d)(?:10\d{3}|11\d{3}|7\d{3}|8\d{3})(?!\d)")
 # Heartbeat status line from the captured gateway source: the display layer
 # only watches it for state changes (link up/down colour, outline 2.2.5).
 _HEARTBEAT_STATUS = re.compile(r"\[HEARTBEAT-UP\] gateway(\d+) heartbeat status=(\d+)")
+# Per-channel uplink stat lines ([JSON-UP][json_chN][DETAIL] rate=... |
+# last_json={full business payload}) are transport bookkeeping with a whole
+# message attached: console noise for the demo, dropped by default below.
+_JSON_UP_DETAIL = re.compile(r"\[JSON-UP\]\[[^\]]+\]\[DETAIL\]")
 
 
 class RedactedStdout:
@@ -33,6 +37,10 @@ class RedactedStdout:
         # each line as a flip against the previous gateway's status and
         # spam up/down notices.
         self._last_status = {}
+        # CLOUD_JSON_DETAIL=1 re-enables the dropped [JSON-UP][DETAIL] stat
+        # lines (debug path; pair with CLOUD_JSON_REPORT_INTERVAL for the
+        # cadence).
+        self._drop_json_detail = not os.environ.get("CLOUD_JSON_DETAIL")
 
     def _colour(self, code, text):
         # Same rule as the model layer: plain when piped or NO_COLOR is set.
@@ -76,6 +84,13 @@ class RedactedStdout:
         if "[HEARTBEAT-UP]" in text:
             self._heartbeat_notice(text)
             self._suppress_next_newline = True
+            return len(text)
+        # [JSON-UP][ch][DETAIL] stat lines (rate/total + last_json payload)
+        # never reach the terminal; WARN/reconnect lines still do.  Same
+        # split-write dance as heartbeat: eat the bare newline when print()
+        # delivers it separately.
+        if self._drop_json_detail and _JSON_UP_DETAIL.search(text):
+            self._suppress_next_newline = not text.endswith("\n")
             return len(text)
         text = _IP_PORT.sub("[REDACTED ENDPOINT]", text)
         text = _PORT.sub("[REDACTED PORT]", text)
@@ -123,9 +138,9 @@ def main() -> None:
     # a transfer finishes (deployment default in config.py is 30 s).
     config_module.JSON_MAX_AGE_SECONDS = 300.0
     # Demo pacing: the per-channel [JSON-UP][ch][DETAIL] stat lines flood the
-    # cloud terminal every 5 s (config.py default); slow them to one line per
-    # minute, same cadence as the throttled HTTP-SAT access log.  Set
-    # CLOUD_JSON_REPORT_INTERVAL=5 to restore the fast debug cadence.
+    # cloud terminal every 5 s (config.py default); the display layer now
+    # drops them outright -- set CLOUD_JSON_DETAIL=1 (and optionally
+    # CLOUD_JSON_REPORT_INTERVAL=5) to bring them back for debugging.
     config_module.JSON_REPORT_INTERVAL = float(
         os.environ.get("CLOUD_JSON_REPORT_INTERVAL", "60"))
     source_path = ROOT / "original" / "gateway_v1.py"
