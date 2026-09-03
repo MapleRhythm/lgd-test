@@ -122,6 +122,12 @@ def main() -> None:
     # packet so ./query_link_data.sh still shows the live channel table once
     # a transfer finishes (deployment default in config.py is 30 s).
     config_module.JSON_MAX_AGE_SECONDS = 300.0
+    # Demo pacing: the per-channel [JSON-UP][ch][DETAIL] stat lines flood the
+    # cloud terminal every 5 s (config.py default); slow them to one line per
+    # minute, same cadence as the throttled HTTP-SAT access log.  Set
+    # CLOUD_JSON_REPORT_INTERVAL=5 to restore the fast debug cadence.
+    config_module.JSON_REPORT_INTERVAL = float(
+        os.environ.get("CLOUD_JSON_REPORT_INTERVAL", "60"))
     source_path = ROOT / "original" / "gateway_v1.py"
     source = unwrap(source_path)
     namespace = {"__name__": "__main__", "__file__": str(source_path)}
