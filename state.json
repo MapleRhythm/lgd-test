@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "run_id": "run-20260901-082319",
+  "created_at": "2026-09-01T08:23:19.148+00:00",
+  "next_msg_id": 9,
+  "next_event_id": 9,
+  "gateway_id": "gateway_1",
+  "links": {
+    "wifi": {
+      "kind": "ingress",
+      "online": false,
+      "packets": 0,
+      "bytes": 0
+    },
+    "bluetooth": {
+      "kind": "ingress",
+      "online": false,
+      "packets": 0,
+      "bytes": 0
+    },
+    "wired": {
+      "kind": "ingress",
+      "online": false,
+      "packets": 0,
+      "bytes": 0
+    },
+    "5g": {
+      "kind": "uplink",
+      "online": false,
+      "packets": 0,
+      "bytes": 0
+    },
+    "shortwave": {
+      "kind": "uplink",
+      "online": false,
+      "packets": 0,
+      "bytes": 0
+    },
+    "satellite": {
+      "kind": "uplink",
+      "online": false,
+      "packets": 0,
+      "bytes": 0
+    }
+  },
+  "whitelist": [
+    "182D48D7",
+    "3C15DB07",
+    "990E261B",
+    "EA1D2801"
+  ],
+  "route_enabled": false,
+  "forwarder_enabled": false,
+  "encapsulation_enabled": false,
+  "multi_source_enabled": true,
+  "whitelist_filter_enabled": false,
+  "cloud_manager_enabled": true,
+  "channels": {
+    "embb": {
+      "label": "high-bandwidth",
+      "weight": 1,
+      "rate_mbps": 10.0
+    },
+    "normal": {
+      "label": "normal-data",
+      "weight": 2,
+      "rate_mbps": 5.0
+    },
+    "critical": {
+      "label": "critical-low-latency",
+      "weight": 5,
+      "rate_mbps": 2.0
+    }
+  },
+  "rate_limit_mbps": null
+}

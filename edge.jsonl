@@ -1,0 +1,8 @@
+{"timestamp":"2026-09-01T08:23:19.219+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000001","link_id":"wifi","reason":"multi_source_access_not_started"}
+{"timestamp":"2026-09-01T08:23:19.872+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000002","link_id":"wifi","reason":"multi_source_access_not_started"}
+{"timestamp":"2026-09-01T08:23:20.501+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000003","link_id":"wifi","reason":"multi_source_access_not_started"}
+{"timestamp":"2026-09-01T08:23:21.078+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000004","link_id":"wifi","reason":"multi_source_access_not_started"}
+{"timestamp":"2026-09-01T08:23:21.662+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000005","link_id":"wifi","reason":"multi_source_access_not_started"}
+{"timestamp":"2026-09-01T08:23:22.404+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000006","link_id":"wifi","reason":"multi_source_access_not_started"}
+{"timestamp":"2026-09-01T08:23:23.345+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000007","link_id":"wifi","reason":"multi_source_access_not_started"}
+{"timestamp":"2026-09-01T08:23:24.242+00:00","stage":"gate_closed","transport":"TCP","device_id":"3C15DB07","biz_type":"sensor","msg_id":"MSG-00000008","link_id":"wifi","reason":"multi_source_access_not_started"}
