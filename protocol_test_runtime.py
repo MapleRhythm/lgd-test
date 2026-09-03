@@ -2160,8 +2160,10 @@ def cmd_start_transfer(args) -> int:
         result = emit_message(device_id, biz_type, ingress_link_for(index), transport="TCP")
         scheduler = state["channels"][channel]
         append_record("scheduler.jsonl", {"timestamp": now_iso(), "msg_id": result["msg_id"], "biz_type": biz_type, "channel": channel, "priority": scheduler["weight"], "rate_limit_mbps": state.get("rate_limit_mbps")})
-        rows.append((result["msg_id"], biz_type, channel, scheduler["weight"], ",".join(result.get("forwarded", [])) or "-"))
-    table(("Message", "Business", "Channel", "Priority", "Uplink"), rows)
+        rows.append((biz_type, channel, scheduler["weight"], ",".join(result.get("forwarded", [])) or "-"))
+    # msg_id 只进 scheduler.jsonl 台账（同 uplink-transfer 口径），演示表
+    # 只表现通道调度：业务 -> 通道/优先级/上行。
+    table(("Business", "Channel", "Priority", "Uplink"), rows)
     ok("resource scheduler dispatched video, sensor and control/alarm traffic")
     return 0
 
