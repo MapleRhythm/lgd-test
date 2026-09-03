@@ -1472,8 +1472,8 @@ SOURCE_DEFAULTS = {
     "sensor": (DEMO_DEVICE_IDS["sensor"], ("wifi",)),
     "env": (DEMO_DEVICE_IDS["env"], ("wifi", "bluetooth", "wired")),
     # 风速模拟（独立风速设备 DEV-001）：业务走 sensor（windspeed 读数），
-    # 在环境监测终端发送，链路随 env 轮换；不随名单过滤换 ID。
-    "wind": (DEMO_DEVICE_IDS["wind"], ("wifi", "bluetooth", "wired")),
+    # 在环境监测终端发送，端侧→边缘网关仅有线；回传按 sensor 走 5G；不随名单过滤换 ID。
+    "wind": (DEMO_DEVICE_IDS["wind"], ("wired",)),
 }
 
 

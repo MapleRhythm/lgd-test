@@ -71,7 +71,7 @@ printf '  火情（随视频流上报，每10s一条，默认无火情 false）:
 printf '    ./fire_alarm.sh --on        # 触发火情：后续火情上报载荷变为 true\n'
 printf '    ./fire_alarm.sh --off       # 解除火情：恢复 false\n'
 printf '\n'
-printf '  风速模拟（独立风速设备 DEV-001，Wi-Fi/蓝牙/有线轮换，后台启动）:\n'
+printf '  风速模拟（独立风速设备 DEV-001，仅有线接入、回传 5G，后台启动）:\n'
 printf '    ./start_wind_data.sh\n'
 printf '\n'
 printf '  2.2.3 commands（大纲 2.2.3 端侧流程，默认即环境监测身份）:\n'
