@@ -790,11 +790,11 @@ def _sat_live_cache_store(entry):
         pass  # 缓存写失败只是退回逐次采样，不影响查询
 
 
-def live_cloud_channels_state():
+def live_cloud_channels_state(channels=CLOUD_LIVE_CHANNELS):
     host = os.getenv("PROTOCOL_TEST_CLOUD_HTTP_HOST", "127.0.0.1")
     states = []
     sat_cached, _ttl = _sat_live_cache_load()
-    for name, http_port, uplink_port, file_name in CLOUD_LIVE_CHANNELS:
+    for name, http_port, uplink_port, file_name in channels:
         entry = {
             "channel": name, "http_port": http_port, "uplink_port": uplink_port,
             "reachable": False, "seq": None, "origin": "-", "record": None,
@@ -1426,7 +1426,10 @@ def cmd_query_link_data(args) -> int:
     if cloud_live_enabled():
         print("")
         info("live core gateway verification (real device-edge-relay-cloud path)")
-        states = live_cloud_channels_state()
+        # 只轮询本表显示的三条边缘上联通道：卫星页不显示就不采样，
+        # 免得其访问日志（HTTP-SAT）串到云端终端。
+        states = live_cloud_channels_state(
+            tuple(ch for ch in CLOUD_LIVE_CHANNELS if ch[0] in LIVE_EDGE_CHANNEL_LABELS))
         rows = []
         for entry in states:
             label = LIVE_EDGE_CHANNEL_LABELS.get(entry["channel"])
