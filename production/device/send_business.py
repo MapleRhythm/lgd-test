@@ -136,6 +136,7 @@ class Sender:
         self.sent = 0
         self.bytes_sent = 0
         self.last_msg_id = ""
+        self.last_detail = ""
 
     def _connect(self) -> socket.socket:
         sock = socket.create_connection((self.host, self.port), timeout=5.0)
@@ -179,6 +180,17 @@ class Sender:
         else:
             message["windspeed"] = self.source.windspeed()
         message["data_source"] = "device-sender"
+        # [SEND] 明细取本条报文实际载荷字段（只展示真实读数口径）。
+        if self.biz_type in ("fire", "control-alarm"):
+            self.last_detail = "fire=%s scene=%s" % (message["fire"], message["scene"])
+        elif self.biz_type == "env":
+            self.last_detail = "temp=%sC humidity=%s%% pm25=%s" % (
+                message["temperature"], message["humidity"], message["pm25"])
+        elif self.biz_type == "video":
+            self.last_detail = "codec=%s %s@%sfps frames=%s" % (
+                message["codec"], message["resolution"], message["fps"], message["frames"])
+        else:
+            self.last_detail = "windspeed=%s" % message["windspeed"]
         data = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
         for attempt in (0, 1):
             try:
@@ -228,12 +240,7 @@ def run_single(args) -> int:
                     break
                 time.sleep(1.0)
                 continue
-            if args.biz_type in ("fire", "control-alarm"):
-                detail = "fire=%s" % sender.fire
-            elif args.biz_type in ("env", "video"):
-                detail = "%s sim" % args.biz_type
-            else:
-                detail = "windspeed=%s" % (source.fixed or "sim")
+            detail = sender.last_detail
             print("[SEND] link=%s msg_id=%s bytes=%d %s" %
                   (args.link, sender.last_msg_id, size, detail))
             if args.interval > 0 and not (args.count and sender.sent >= args.count):

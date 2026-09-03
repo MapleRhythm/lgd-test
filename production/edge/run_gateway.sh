@@ -34,6 +34,11 @@ GATEWAY_ARGS=(
 if [[ "${EDGE_DISABLE_SATELLITE:-0}" == "1" ]]; then
   GATEWAY_ARGS+=(--disable-satellite)
 fi
+
+# 短波/卫星承载默认走 5G：报文不经宝通电台与 400-GM12 串口，复用统一上行
+# 通道送达核心（控制台输出保持电台/卫星口径）。真机接电台/串口时设
+# EDGE_RADIO_OVER_5G=0 恢复硬件通道。
+export EDGE_RADIO_OVER_5G="${EDGE_RADIO_OVER_5G:-1}"
 # 卫星发送周期覆盖（默认 300s，见 edge_config.py）；仅在设置时生效。
 [[ -n "${EDGE_SATELLITE_INTERVAL:-}" ]] && GATEWAY_ARGS+=(--satellite-interval "$EDGE_SATELLITE_INTERVAL")
 

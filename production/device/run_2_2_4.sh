@@ -3,8 +3,8 @@
 #
 # 前提：
 #   - 边缘网关真机已运行 ../edge/run_gateway.sh（默认不受理、不转发）；
-#     2.2.4 联调需以直发模式启动：EDGE_RADIO_OVER_5G=1 ./run_gateway.sh
-#     （短波/卫星报文按信道时延直发核心网关，见 README「大纲 2.2.4 流程」）
+#     短波/卫星默认走 5G 统一上行直发核心网关（EDGE_RADIO_OVER_5G 默认 1，
+#     真机接电台/串口时设 0，见 README「大纲 2.2.4 流程」）
 #   - EDGE_HOST 指向边缘网关地址（默认 127.0.0.1，设备与网关同机时）
 #   - 可选 EDGE_SSH=<user@edge-host>：<edge-dir> —— 边缘侧步骤自动经 ssh
 #     在边缘网关上执行；未设置时打印人工执行指令

@@ -27,7 +27,8 @@ cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/edge
 
 ./edge_forward.sh --stop        # 先清掉残留的转发标记
 
-# 台架/联调参数：端口与演示错开、卫星串口关闭、宝通指本机、中转=生产
+# 台架/联调参数：端口与演示错开、卫星上行关闭（2.2.3 不演示卫星）、
+# 宝通指本机、中转=生产（短波默认走 5G 统一上行）
 EDGE_JSON_PORT=18888 EDGE_MEDIA_PORT=17777 \
 EDGE_BAOTONG_HOST=127.0.0.1 EDGE_BAOTONG_PORT=19118 \
 EDGE_CLOUD_HOST=47.99.47.169 EDGE_DISABLE_SATELLITE=1 \
@@ -162,10 +163,9 @@ tail -n 3 .state/sent.jsonl      # 端侧发送审计，与中转 STAT 计数对
 
 ## 步骤 0 前提：会话复位 + 打开转发通道（在边缘网关执行）
 
-> 2.2.4 需边缘网关以**直发模式**运行：若沿用 2.2.3 的网关请先 Ctrl-C，再以
-> `EDGE_RADIO_OVER_5G=1` 重启（短波/卫星报文按信道时延直发核心网关，台架
-> 参数同终端 A 一节，见 production/README.md「2.2.4 直发模式」）。真机三节点
-> 部署时网关启动命令为 `EDGE_RADIO_OVER_5G=1 ./run_gateway.sh`。
+> 2.2.4 的短波/卫星报文按信道时延直发核心网关（`EDGE_RADIO_OVER_5G` 默认 1，
+> 若显式设过 0 请去掉重启；台架参数同终端 A 一节，见 production/README.md
+> 「2.2.4 直发模式」）。真机三节点部署时网关启动命令即 `./run_gateway.sh`。
 
 ```bash
 cd /mnt/c/Users/23369/Desktop/PythonSocketProject/final/production/edge

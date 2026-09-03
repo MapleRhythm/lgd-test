@@ -37,7 +37,9 @@ cd edge
 
 默认即生产：中转 `47.99.47.169:11500`、白名单 `http://<cloud-host>:11502`（30s 周期）、
 宝通 `192.168.2.1:9100`、卫星 `/dev/ttyUSB0@115200`、监听 `0.0.0.0:8888/7777`。
-台架联调（无串口/无宝通网络）用环境变量覆盖：
+短波/卫星承载默认**走 5G**：`EDGE_RADIO_OVER_5G` 默认 1，报文不经电台/串口、
+复用统一上行通道送达核心（控制台仍按电台/卫星口径打印）；真机接电台/串口时
+设 `EDGE_RADIO_OVER_5G=0` 恢复硬件通道。台架联调（无串口/无宝通网络）用环境变量覆盖：
 
 ```bash
 EDGE_DISABLE_SATELLITE=1 EDGE_BAOTONG_HOST=127.0.0.1 EDGE_BAOTONG_PORT=19118 ./run_gateway.sh
@@ -82,6 +84,14 @@ python3 send_business.py --duration 600 --interval 1 --fg    # 持续（有线�
 python3 send_business.py --link all --duration 5 --fg    # 三模态并发吞吐（前台）
 python3 send_business.py --value 17.3 --count 1 --fg     # 真实传感器单值（前台）
 python3 send_business.py --values-file ws.txt --duration 60 --fg  # 逐行喂入实时读数
+```
+
+风速设备（`DEV-001`，与演示版同语义）：**仅有线接入**边缘网关，回传随
+sensor 业务走 5G：
+
+```bash
+python3 send_business.py --device-id DEV-001 --biz-type sensor --link wired \
+    --duration 600 --interval 1 --fg
 ```
 
 火情上报由**视频流终端**承担（每10s一条，无火情 false / 有火情 true）：
@@ -147,12 +157,12 @@ export EDGE_HOST=<边缘网关IP>          # 默认 127.0.0.1
 ### 2.2.4 直发模式（短波/卫星联调）
 
 现网短波是主站轮询架构（发送由核心网关呼叫触发）、卫星走 400-GM12 串口；
-联调环境没有电台呼叫与卫星串口，2.2.4 以**直发模式**运行——边缘网关把
-短波/卫星报文复用统一上行通道直发核心网关，并按信道时延节奏发送：
+生产包默认以**直发模式**运行（`EDGE_RADIO_OVER_5G` 默认 1）——边缘网关把
+短波/卫星报文复用统一上行通道（5G 承载）直发核心网关，并按信道时延节奏发送：
 
 ```bash
 cd edge
-EDGE_RADIO_OVER_5G=1 ./run_gateway.sh      # 2.2.4 联调直发模式启动
+./run_gateway.sh                           # 默认即直发模式（EDGE_RADIO_OVER_5G=1）
 # 时延可调：EDGE_SW_DELAY_S=20（短波）/ EDGE_SAT_DELAY_S=120（卫星）；
 # 时延抖动：EDGE_SW_JITTER_S=3 / EDGE_SAT_JITTER_S=10，实际时延逐报文
 # 在 基准±抖动 内随机波动（模拟信道传播起伏）
@@ -166,8 +176,9 @@ EDGE_RADIO_OVER_5G=1 ./run_gateway.sh      # 2.2.4 联调直发模式启动
   经 `EDGE_SAT_DELAY_S`±`EDGE_SAT_JITTER_S`（默认 120±10s，逐帧随机波动）
   星上时延后送达云端卫星接收页面
   （核心侧卫星页面可见；报文 timestamp 与落地时刻之差即星上时延）。
-- 默认**关闭**：不设置 `EDGE_RADIO_OVER_5G` 时短波仍为主站轮询、卫星仍走
-  串口（2.2.3 流程不受影响）。单机联调 `run_2_2_4_production.sh` 自动启用
+- 默认**开启**：`EDGE_RADIO_OVER_5G` 未设置即为 1；真机接宝通电台与
+  400-GM12 串口时显式设 `EDGE_RADIO_OVER_5G=0` 恢复主站轮询与串口。
+  单机联调 `run_2_2_4_production.sh` 自动启用
   （卫星周期 `EDGE_SATELLITE_INTERVAL` 默认 150s），并在末尾等待首帧卫星
   落地后再收尾（`SAT_LAND_WAIT=0` 跳过等待）。
 
