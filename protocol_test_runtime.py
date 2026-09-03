@@ -1937,7 +1937,7 @@ def cmd_cloud_query(args) -> int:
         physical_keys = [(item.get("msg_id"), item.get("link_id")) for item in records if item.get("msg_id")]
         unique = len(set(ids))
         duplicate_copies = len(physical_keys) - len(set(physical_keys))
-        table(("Physical copies", "Logical msg_id", "Duplicate copies"), [(len(ids), unique, duplicate_copies)])
+        table(("Logical msg_id", "Duplicate copies"), [(unique, duplicate_copies)])
         ok("msg_id uniqueness check passed (redundant links share one logical msg_id)" if duplicate_copies == 0 else "duplicate msg_id/link copies detected")
         if cloud_live_enabled():
             rows = [row for row in live_cloud_rows() if row["msg_id"] or row["device_id"]]
