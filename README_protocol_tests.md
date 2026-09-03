@@ -212,8 +212,7 @@ Use a short duration while checking the workflow, for example
 状态写入与 msg_id 分配均有跨进程锁）。
 
 三个 start 命令默认**后台持续发送**：终端只显示一行 `[LAUNCH]`（biz/
-device/链路/持续或条数或时长/pid/日志路径，与生产包 `send_business.py`
-同格式）即回提示符，progress 明细写 `.protocol-test/sender-<biz>-<时间>.log`，
+持续或条数或时长/pid/日志路径）即回提示符，progress 明细写 `.protocol-test/sender-<biz>-<时间>.log`，
 直到 kill `[LAUNCH]` 行打印的 pid；`--count/--duration` 到限自行结束，
 `--fg` 前台直跑（一键回归脚本内部即用 `--fg`）。从 `run_device_terminal.sh`
 启动的后台发送随该终端退出自动结束（终端只 kill 本会话登记的 pid）。

@@ -1481,9 +1481,8 @@ SOURCE_DEFAULTS = {
 
 
 def _launch_line(args, source_kind: str, log_path: str, pid: int | None = None) -> str:
-    # 与生产包 send_business.py 的 [LAUNCH] 行同格式（biz/device/link/量/间隔/pid/日志）。
-    base_device_id, links = SOURCE_DEFAULTS[source_kind]
-    link = links[0] if len(links) == 1 else "rotate"
+    # [LAUNCH] 行只保留 biz/量/间隔/pid/日志；device/link 等细节不展示
+    # （报文全量在 sent.jsonl 台账里，输出对齐大纲口径）。
     if args.count:
         amount = "count=%d" % args.count
     elif args.duration:
@@ -1491,9 +1490,8 @@ def _launch_line(args, source_kind: str, log_path: str, pid: int | None = None) 
     else:
         amount = "持续"
     pid_part = " pid=%d" % pid if pid is not None else ""
-    return ("[LAUNCH] 业务发送启动：biz=%s device=%s link=%s %s interval=%gs%s 日志=%s"
-            % (source_kind, args.device_id or base_device_id, link, amount,
-               args.interval, pid_part, log_path))
+    return ("[LAUNCH] 业务发送启动：biz=%s %s interval=%gs%s 日志=%s"
+            % (source_kind, amount, args.interval, pid_part, log_path))
 
 
 def _enter_background(args, source_kind: str) -> int | None:
