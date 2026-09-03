@@ -233,9 +233,12 @@ fire 业务报文（同一设备身份、有线接入），载荷为 `"fire": "f
 ./fire_alarm.sh          # 只查看当前火情状态
 ```
 
-风速模拟：`./start_wind_data.sh` 以独立风速设备 DEV-001
-（`PROTOCOL_TEST_DEVICE_WIND` 可覆盖）持续发送 windspeed 读数（sensor 业务，
-仅有线接入边缘网关、回传走 5G，Ctrl-C 停止）。DEV-001 已内置在本地中转的白名单
+光照强度模拟：`./start_light_data.sh` 以独立光照设备 DEV-001
+（`PROTOCOL_TEST_DEVICE_LIGHT` 可覆盖）持续发送光照强度读数（sensor 业务，
+仅有线接入边缘网关、回传走 5G，后台发送，kill [LAUNCH] 行 pid 停止）。
+`./start_sensor_data.sh` 默认（后台形态）会**一并拉起** DEV-001——中断/重启后
+重敲传感器命令即可，无需单独补拉；`--fg` 前台回归形态仍只跑传感器本身，
+统计不混入 DEV-001 的记录。DEV-001 已内置在本地中转的白名单
 （whitelist.json）；如需追加其他设备，在云端或边缘终端执行
 `./whitelist_add_device.sh <设备ID>`——GET→合并→POST 改写本地中转并持久化，
 边缘网关按拉取周期（默认 30s）同步新名单；**远端生产中转只读，该命令一律拒绝**。

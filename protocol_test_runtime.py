@@ -94,8 +94,8 @@ DEMO_DEVICE_IDS = {
     "fire": os.getenv("PROTOCOL_TEST_DEVICE_FIRE", "EA1D2801"),
     "control": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL", "EA1D2801"),
     "control-alarm": os.getenv("PROTOCOL_TEST_DEVICE_CONTROL_ALARM", "EA1D2801"),
-    # 独立风速设备（环境监测终端模拟 windspeed 读数用，白名单在册）。
-    "wind": os.getenv("PROTOCOL_TEST_DEVICE_WIND", "DEV-001"),
+    # 独立光照设备（传光照强度读数用，白名单在册）。
+    "light": os.getenv("PROTOCOL_TEST_DEVICE_LIGHT", "DEV-001"),
 }
 # 火情上报周期：火情由视频流终端上报（同一设备身份、有线接入），
 # start_video_stream 期间每 10s 附带一条 fire 报文，载荷布尔随 fire_alarm。
@@ -461,6 +461,14 @@ def simulate_readings(biz_type: str) -> dict:
             "data_source": "mock_image_terminal",
         }
     return {}
+
+
+def light_readings() -> dict:
+    """独立光照设备 DEV-001 的光照强度读数（lux，平铺顶层，风格同 mock 传感器）。"""
+    return {
+        "illumination": "{:.1f}".format(random.uniform(20000.0, 98000.0)),
+        "data_source": "mock_light_sensor",
+    }
 
 
 def build_payload(device_id: str, biz_type: str, source_link: str, payload=None) -> dict:
@@ -1474,9 +1482,9 @@ SOURCE_DEFAULTS = {
     "video": (DEMO_DEVICE_IDS["video"], ("wired",)),
     "sensor": (DEMO_DEVICE_IDS["sensor"], ("wifi",)),
     "env": (DEMO_DEVICE_IDS["env"], ("wifi", "bluetooth", "wired")),
-    # 风速模拟（独立风速设备 DEV-001）：业务走 sensor（windspeed 读数），
-    # 在环境监测终端发送，端侧→边缘网关仅有线；回传按 sensor 走 5G；不随名单过滤换 ID。
-    "wind": (DEMO_DEVICE_IDS["wind"], ("wired",)),
+    # 光照强度模拟（独立光照设备 DEV-001）：业务走 sensor（光照强度读数），
+    # 端侧→边缘网关仅有线；回传按 sensor 走 5G；不随名单过滤换 ID。
+    "light": (DEMO_DEVICE_IDS["light"], ("wired",)),
 }
 
 
@@ -1549,7 +1557,7 @@ def source_entry(args, source_kind: str) -> int:
 def source_command(args, source_kind: str) -> int:
     title("SOURCE: {} DATA".format(source_kind.upper()))
     base_device_id, links = SOURCE_DEFAULTS[source_kind]
-    biz_type = "sensor" if source_kind == "wind" else source_kind
+    biz_type = "sensor" if source_kind == "light" else source_kind
 
     def current_device_id():
         # 大纲 2.2.4 可信接入：trust_access_add_whitelist 执行（过滤生效）后，
@@ -1579,7 +1587,9 @@ def source_command(args, source_kind: str) -> int:
     def producer(index):
         link_id = links[index % len(links)]
         device_id = current_device_id()
-        result = emit_message(device_id, biz_type, link_id, transport="TCP")
+        # DEV-001 的读数是光照强度（lux）；其余业务按 biz 用默认模拟读数。
+        payload = light_readings() if source_kind == "light" else None
+        result = emit_message(device_id, biz_type, link_id, payload=payload, transport="TCP")
         results.append(result)
         if source_kind == "video" and os.getenv("PROTOCOL_TEST_LIVE_MEDIA", "0") == "1":
             send_live_media(build_payload(device_id, source_kind, link_id))
@@ -2256,11 +2266,11 @@ def build_parser():
     item.set_defaults(function=cmd_query_link_data)
 
     for command, source_kind in (("start-video", "video"), ("start-sensor", "sensor"), ("start-env", "env"),
-                                 ("start-wind", "wind")):
+                                 ("start-light", "light")):
         item = sub.add_parser(command)
         # 大纲 2.2.4：三个端侧 start 命令默认后台持续发送（与生产包
         # send_business.py 一致），--count/--duration 限量，--fg 前台直跑。
-        # start-wind 为风速模拟（DEV-001，sensor 业务），行为相同。
+        # start-light 为光照强度模拟（DEV-001，sensor 业务），行为相同。
         add_common_loop_options(item, count=None, duration=None, interval=1.0)
         if source_kind == "video":
             # 视频流终端随流每 10s 上报一条火情；--no-fire-report 仅诊断时关闭。

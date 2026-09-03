@@ -112,8 +112,8 @@ python3 send_business.py --value 17.3 --count 1 --fg     # 真实传感器单值
 python3 send_business.py --values-file ws.txt --duration 60 --fg  # 逐行喂入实时读数
 ```
 
-风速设备（`DEV-001`，与演示版同语义）：**仅有线接入**边缘网关，回传随
-sensor 业务走 5G：
+风速设备（`DEV-001`，接入/回传语义与演示版一致：仅有线接入，回传随
+sensor 业务走 5G；读数默认仍为风速模拟）：
 
 ```bash
 python3 send_business.py --device-id DEV-001 --biz-type sensor --link wired \
