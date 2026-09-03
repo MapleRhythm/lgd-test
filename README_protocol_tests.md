@@ -328,7 +328,9 @@ fire/windspeed **按次轮换**应答（一条短信只装一种；"关键传感
 shortwave_next` 明细，`start_uplink_transfer` 表格下方提示轮换，真网关
 终端打印 [BAOTONG-V2][OFFLINE-ROTATE]。fire 报文载荷跟随 `./fire_alarm.sh`
 的火情标志（false/true，不再随机）。`link-monitor.sh` 保持纯监测：
-加罩后在边缘终端执行即可看到 5G BELOW THRESHOLD 与降级路由
+加罩后在边缘终端执行即可看到 5G BELOW THRESHOLD 与**切换信息**
+（短波继续告警/控制并增加关键传感器承载、卫星继续关键传感器、
+5G 承载的视频流/图片/常规传感器暂停上行；恢复时显示回切信息）
 （`--low/--normal` 仍可手动置位本地模型，不再下发任何服务器指令）。
 远端生产中转（47.99.47.169）只读，link_block 一律不下发，仅模型生效。
 5G/链路切换状态以颜色区分：**恢复/正常绿、中断/降级红**——查询表的

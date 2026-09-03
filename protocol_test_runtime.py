@@ -2063,8 +2063,14 @@ def cmd_link_monitor(args) -> int:
     table(("Link", "Online", "Decision"), [("5G", state["links"]["5g"]["online"], "AVAILABLE" if link_is_up(state, "5g") else "BELOW THRESHOLD")])
     if mode == "normal":
         ok("5G signal is above threshold")
+        # 大纲 2.2.5 条目4 回切信息：撤罩恢复后各链路承载复原。
+        info("切换信息｜5G 恢复：视频流、图片和常规传感器数据恢复经 5G 上行；短波回传告警和控制信息；卫星继续传输部分关键传感器信息")
     else:
         warn_red("5G signal is below threshold; degraded routing is active")
+        # 大纲 2.2.5 条目3 切换信息：降级后各链路承载的调整（边缘网关显示）。
+        info("切换信息｜短波链路：继续传输告警和控制信息，并增加对部分关键传感器数据的承载")
+        info("切换信息｜卫星链路：继续传输部分关键传感器信息")
+        info("切换信息｜5G 链路：视频流、图片和常规传感器数据暂停上行")
     return 0
 
 
