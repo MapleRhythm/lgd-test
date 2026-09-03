@@ -31,7 +31,7 @@ section '2.2.3'
 
 section '2.2.4'
 # 回归脚本用 --fg 前台直跑（交互终端里默认是后台启动，只回显启动行）；
-# 前三条不限时长，发送几条后 Ctrl-C 进入下一步。
+# 前三条未给条数/时长，按生产包 count=1 兜底各发一条即自行结束。
 ./start_video_stream.sh --fg
 ./start_sensor_data.sh --fg
 ./start_env_data.sh --fg

@@ -1421,19 +1421,73 @@ def cmd_query_link_data(args) -> int:
     return 0
 
 
+# 大纲 2.2.4 三个端侧终端的接入链路：视频流=有线，传感器=Wi-Fi，
+# 环境监测模块=Wi-Fi/蓝牙轮换（每条报文走一条，轮流分担）。
+SOURCE_DEFAULTS = {
+    "video": (DEMO_DEVICE_IDS["video"], ("wired",)),
+    "sensor": (DEMO_DEVICE_IDS["sensor"], ("wifi",)),
+    "env": (DEMO_DEVICE_IDS["env"], ("wifi", "bluetooth", "wired")),
+    # 风速模拟（独立风速设备 DEV-001）：业务走 sensor（windspeed 读数），
+    # 在环境监测终端发送，链路随 env 轮换；不随名单过滤换 ID。
+    "wind": (DEMO_DEVICE_IDS["wind"], ("wifi", "bluetooth", "wired")),
+}
+
+
+def _launch_line(args, source_kind: str, log_path: str, pid: int | None = None) -> str:
+    # 与生产包 send_business.py 的 [LAUNCH] 行同格式（biz/device/link/量/间隔/pid/日志）。
+    base_device_id, links = SOURCE_DEFAULTS[source_kind]
+    link = links[0] if len(links) == 1 else "rotate"
+    amount = ("count=%d" % args.count) if args.count else ("duration=%gs" % args.duration)
+    pid_part = " pid=%d" % pid if pid is not None else ""
+    return ("[LAUNCH] 业务发送启动：biz=%s device=%s link=%s %s interval=%gs%s 日志=%s"
+            % (source_kind, args.device_id or base_device_id, link, amount,
+               args.interval, pid_part, log_path))
+
+
+def _enter_background(args, source_kind: str) -> int | None:
+    """后台发送（单终端合并形态）：父进程只打印一行 [LAUNCH] 即退出，子进程
+    setsid 后把标准输出重定向到日志继续发送——与生产包 send_business.py
+    --background 的实现一致（含行缓冲与默认日志路径）。"""
+    if not hasattr(os, "fork"):
+        print("[LAUNCH][ERROR] --background 仅支持 Linux（真机/WSL 部署）", file=sys.stderr)
+        return 2
+    log_path = args.bg_log or str(
+        STATE_DIR / "sender-{}-{}.log".format(
+            source_kind, datetime.now().strftime("%Y%m%d-%H%M%S")))
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    pid = os.fork()
+    if pid > 0:
+        print(_launch_line(args, source_kind, log_path, pid), flush=True)
+        return 0
+    os.setsid()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    log_fh = open(log_path, "a", encoding="utf-8", buffering=1)
+    os.dup2(log_fh.fileno(), 1)
+    os.dup2(log_fh.fileno(), 2)
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
+    print(_launch_line(args, source_kind, log_path, os.getpid()))
+    return None
+
+
+def source_entry(args, source_kind: str) -> int:
+    # 与生产包 send_business.py 同步：未给 --count/--duration 时默认只发一条。
+    if not args.count and not args.duration:
+        args.count = 1
+    if getattr(args, "background", False):
+        parent_rc = _enter_background(args, source_kind)
+        if parent_rc is not None:
+            return parent_rc
+    return source_command(args, source_kind)
+
+
 def source_command(args, source_kind: str) -> int:
     title("SOURCE: {} DATA".format(source_kind.upper()))
-    # 大纲 2.2.4 三个端侧终端的接入链路：视频流=有线，传感器=Wi-Fi，
-    # 环境监测模块=Wi-Fi/蓝牙轮换（每条报文走一条，轮流分担）。
-    defaults = {
-        "video": (DEMO_DEVICE_IDS["video"], ("wired",)),
-        "sensor": (DEMO_DEVICE_IDS["sensor"], ("wifi",)),
-        "env": (DEMO_DEVICE_IDS["env"], ("wifi", "bluetooth", "wired")),
-        # 风速模拟（独立风速设备 DEV-001）：业务走 sensor（windspeed 读数），
-        # 在环境监测终端发送，链路随 env 轮换；不随名单过滤换 ID。
-        "wind": (DEMO_DEVICE_IDS["wind"], ("wifi", "bluetooth", "wired")),
-    }
-    base_device_id, links = defaults[source_kind]
+    base_device_id, links = SOURCE_DEFAULTS[source_kind]
     biz_type = "sensor" if source_kind == "wind" else source_kind
 
     def current_device_id():
@@ -2142,13 +2196,19 @@ def build_parser():
     for command, source_kind in (("start-video", "video"), ("start-sensor", "sensor"), ("start-env", "env"),
                                  ("start-wind", "wind")):
         item = sub.add_parser(command)
-        # 大纲 2.2.4：三个端侧 start 命令默认持续发送（每秒一条），Ctrl-C 停止。
-        # start-wind 为风速模拟（DEV-001，sensor 业务），同样持续发送。
+        # 大纲 2.2.4：三个端侧 start 命令默认只发一条（与生产包 send_business.py
+        # 的 count=1 兜底一致）；持续发送显式给 --duration。start-wind 为风速
+        # 模拟（DEV-001，sensor 业务），行为相同。
         add_common_loop_options(item, count=None, duration=None, interval=1.0)
         if source_kind == "video":
             # 视频流终端随流每 10s 上报一条火情；--no-fire-report 仅诊断时关闭。
             item.add_argument("--no-fire-report", dest="no_fire_report", action="store_true")
-        item.set_defaults(function=lambda args, source_kind=source_kind: source_command(args, source_kind))
+        # 与生产包 send_business.py 同步的后台发送：父进程一行 [LAUNCH] 即返回。
+        item.add_argument("--background", action="store_true",
+                          help="后台发送：只打印一行 [LAUNCH] 即返回（单终端合并形态）")
+        item.add_argument("--bg-log", default=None,
+                          help="后台日志路径（默认 STATE_DIR/sender-<biz>-<时间>.log）")
+        item.set_defaults(function=lambda args, source_kind=source_kind: source_entry(args, source_kind))
 
     item = sub.add_parser("whitelist-add-device")
     # 向本地中转白名单追加设备（GET->合并->POST；生产中转只读一律拒绝）。

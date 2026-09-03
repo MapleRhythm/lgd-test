@@ -211,10 +211,11 @@ Use a short duration while checking the workflow, for example
 依次输入 start 命令即可（各命令独立进程、独立 TCP 长连接，可同时运行；
 状态写入与 msg_id 分配均有跨进程锁）。
 
-三个 start 命令默认**后台启动**：终端只显示一行「业务已启动」（pid/时长/
-日志路径）即回提示符，progress 明细写 `.protocol-test/sender-*.log`，默认
-600s 自行结束（`SENDER_DURATION` 可覆盖）；`--stop` 停止对应后台发送（只
-kill 记录的 pid），`--fg` 前台直跑（一键回归脚本内部即用 `--fg`）。
+三个 start 命令默认**后台启动**：终端只显示一行 `[LAUNCH]`（biz/device/
+链路/条数或时长/pid/日志路径，与生产包 `send_business.py` 同格式）即回
+提示符，progress 明细写 `.protocol-test/sender-<biz>-<时间>.log`；未给
+`--count/--duration` 时只发一条（count=1 兜底，同生产包），提前停止 kill
+`[LAUNCH]` 行打印的 pid；`--fg` 前台直跑（一键回归脚本内部即用 `--fg`）。
 `./multi_source_access.sh` 执行前，边缘网关（真网关与本地模型
 一致）只累计接收统计，不受理端侧数据：JSON 口报文计 `gate_drop`，媒体口
 VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信接入：起步
