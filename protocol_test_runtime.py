@@ -2001,12 +2001,8 @@ def cmd_query_fire_latency(args) -> int:
     if not fires:
         info("火情由视频流终端随 start_video_stream 每 {}s 上报一条（空表=火情业务未在发）".format(int(FIRE_REPORT_INTERVAL)))
         return 0
-    print()
-    info("火情为高可靠低时延业务：经 5G 主路即时转发（critical 通道，调度权重最高），拥塞时限速不改变其转发时延")
     limit = state.get("rate_limit_mbps")
-    if limit is not None:
-        info("拥塞场景生效：全局限速 {:.2f} Mbps（limit-rate）".format(float(limit)))
-    else:
+    if limit is None:
         info("当前未限速；可先执行 ./limit_rate.sh --rate 1 制造拥塞场景后复测对比")
     if fastest:
         info("5G 主路统计：平均 {:.1f}s / 最大 {:.1f}s（低时延门限 {}s）".format(
