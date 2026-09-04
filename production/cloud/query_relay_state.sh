@@ -14,6 +14,13 @@
 # 环境变量：RADIO_RELAY_PORT（默认 11550）、RADIO_AFTER（游标，默认 0 取
 # 全部）、RADIO_LIMIT（每链路条数，默认 20）、RADIO_LINK（shortwave/
 # satellite/all，默认 all）。
+#
+# 大纲 2.2.5 条目1（云端管理节点，生产只读版）同一入口：接收表之后打印
+# 云端解析判类与转发路径——逐条按业务字段判定类别（视频类/传感类/
+# 控制/告警类）并对应处理入口（显式 biz_type/type 字段优先，短波短信
+# 载荷带 fire 即告警、windspeed 即关键传感器）；卫星身份帧非业务报文
+# 只计数。5G 上行业务经中转进核心网关，只读通道不回放明细，核对走中转
+# STAT 计数（见文末）。
 set -Eeuo pipefail
 
 RELAY_HOST="${RELAY_HOST:-47.99.47.169}"
@@ -131,9 +138,11 @@ links = TABLES if link == "all" else \
 
 try:
     max_seq = after
+    pulled = []
     for link_name, title in links:
         result = fetch(link_name)
         records = result.get("records", [])
+        pulled.extend((link_name, record) for record in records)
         print("%s（%d 条）" % (title, len(records)))
         if records:
             print("%-6s %-20s %-24s %8s  %s" % (
@@ -150,6 +159,73 @@ try:
         else:
             print("  （无记录）")
         print()
+
+    # 云端解析判类与转发路径（2.2.5 条目1 生产只读版）：与演示版
+    # cloud-mgr --start 的两张表同口径——显式业务字段优先，短波短信
+    # 载荷带 fire/windspeed 按字段判类；判不上的是非业务帧（卫星身份帧）。
+    BIZ_CLASSES = (
+        ("视频类", ("video", "image"), "视频处理入口"),
+        ("传感类", ("sensor", "env", "critical-sensor", "windspeed"),
+         "传感数据处理入口"),
+        ("控制/告警类", ("fire", "control", "alarm", "control-alarm"),
+         "控制/告警处理入口"),
+    )
+    LINK_NAMES = {"shortwave": "短波", "satellite": "卫星"}
+
+    def classify(payload):
+        biz = ""
+        for key in ("biz_type", "type", "business"):
+            value = str(payload.get(key) or "").strip().lower().replace("_", "-")
+            if value:
+                biz = value
+                break
+        if not biz and "fire" in payload:
+            biz = "fire"        # 短波短信口径：载荷带 fire 即火情告警
+        if not biz and "windspeed" in payload:
+            biz = "windspeed"   # 风速=关键传感器读数（经短波/卫星承载）
+        for label, members, entry in BIZ_CLASSES:
+            if biz in members:
+                return biz, label, entry
+        return biz, None, None
+
+    biz_rows = []
+    counts = {}
+    non_business = 0
+    for link_name, record in pulled:
+        biz, label, entry = classify(record.get("payload") or {})
+        if label is None:
+            non_business += 1
+            continue
+        counts[label] = counts.get(label, 0) + 1
+        biz_rows.append((record["seq"], biz, label,
+                         LINK_NAMES.get(link_name, link_name), entry))
+    print("云端解析判类与转发路径（业务帧 %d 条）" % len(biz_rows))
+    if biz_rows:
+        # CJK 判类/入口占两格，按显示宽度补齐（仅显示层，不改数据）。
+        import unicodedata
+
+        def _w(text):
+            return sum(2 if unicodedata.east_asian_width(ch) in "FW" else 1
+                       for ch in str(text))
+
+        def pad(text, width):
+            text = str(text)
+            return text + " " * max(0, width - _w(text))
+
+        rows = [("Seq", "业务字段", "判定类别", "链路", "处理入口")]
+        rows.extend(tuple(str(cell) for cell in row) for row in biz_rows)
+        widths = [max(_w(row[i]) for row in rows) for i in range(len(rows[0]))]
+        for row in rows:
+            print("  ".join(pad(row[i], widths[i]) for i in range(len(widths))))
+    else:
+        print("  （无业务帧）")
+    summary = "、".join("%s %d 条" % (label, counts.get(label, 0))
+                        for label, _m, _e in BIZ_CLASSES)
+    tail = ("；另有非业务帧 %d 条（卫星身份帧等，链路保持）" % non_business
+            if non_business else "")
+    print("业务类别接收统计：%s%s" % (summary or "无", tail))
+    print()
+
     print("增量游标: RADIO_AFTER=%d （下次查询只取这之后的新记录）" % max_seq)
 except Exception as exc:
     print("[RADIO] 专用转发链路未启用或不可达: %s" % exc)
