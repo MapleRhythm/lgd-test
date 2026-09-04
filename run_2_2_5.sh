@@ -34,5 +34,6 @@ section '2.2.5 TEST STEPS'
 ./set_channel.sh
 ./start_transfer.sh
 ./limit_rate.sh --rate 1
+./query_fire_latency.sh   # 大纲 2.2.5 观察：拥塞（限速）场景下火情仍低时延转发
 ./cloud-mgr.sh --start
 ./cloud-query.sh --biz-type video/sensor/control-alarm

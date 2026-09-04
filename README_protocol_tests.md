@@ -366,6 +366,7 @@ Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）由
 ./set_channel.sh
 ./start_transfer.sh
 ./limit_rate.sh --rate 1
+./query_fire_latency.sh           # 火情（高可靠低时延业务）最近 5 条 5G 主路端到端时延：拥塞（限速）场景下仍低时延转发
 ./cloud-query.sh --biz-type video/sensor/control-alarm
 ./cloud-query.sh --route-decision
 ./cloud-query.sh --link-switch

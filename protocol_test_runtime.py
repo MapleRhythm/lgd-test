@@ -114,6 +114,9 @@ SATELLITE_LINK_INTERVAL = 120.0
 SATELLITE_LINK_JITTER = 10.0
 SATELLITE_SERVER_HOLD = 120.0
 SATELLITE_HOLD_JITTER = 10.0
+# 大纲 2.2.5 观察点判据：高可靠低时延业务（火情）最快非卫星路径的端到端
+# 时延门限（秒）——低于门限即"仍保持低时延转发"。
+FIRE_LOW_LATENCY_S = 5.0
 # 服务器白名单内的借用设备（与本地中转分发的名单一致）。固定为这五个 ID：
 # 传感器终端的非法设备身份只用于发送，绝不能混进本地白名单。
 DEFAULT_WHITELIST = ["182D48D7", "3C15DB07", "990E261B", "EA1D2801", "DEV-001"]
@@ -204,6 +207,8 @@ STATUS_COLOURS = {
     "true": "red", "false": "green", "有火情": "red", "无火情": "green",
     # 链路切换方向：5G 断开切换红、恢复回切绿。
     "5G -> Shortwave": "red", "Shortwave -> 5G": "green",
+    # 火情时延观测字：低时延绿、高时延红。
+    "低时延": "green", "高时延": "red",
 }
 
 
@@ -1957,6 +1962,65 @@ def cmd_query_cloud_log(args) -> int:
     return 0
 
 
+def cmd_query_fire_latency(args) -> int:
+    title("FIRE LATENCY")
+    sent = read_records("sent.jsonl")
+    cloud = read_records("cloud.jsonl")
+    state = snapshot_state()
+    # 大纲 2.2.5 观察点：高可靠低时延业务（火情告警）在拥塞场景下是否仍
+    # 保持低时延转发——看 5G 主路的端到端时延（端侧发送 sent_at → 核心
+    # 接收 received_at，秒）。火情走 critical 通道（调度权重最高），
+    # 5G 主路承载其低时延转发；短波/卫星为冗余兜底，不进本表。
+    fires = [item for item in sent if normalize_biz_type(item.get("biz_type")) == "fire"][-args.count:]
+
+    def five_g_latency(item):
+        record = next((row for row in cloud
+                       if row.get("msg_id") == item.get("msg_id")
+                       and str(row.get("link_id", "")) == "5g"), None)
+        if record is None:
+            return "-", None
+        try:
+            delta = (datetime.fromisoformat(str(record.get("received_at", "")))
+                     - datetime.fromisoformat(str(item.get("sent_at", "")))).total_seconds()
+        except (ValueError, TypeError):
+            return "-", None
+        return "{:.1f}".format(max(delta, 0.0)), delta
+
+    rows = []
+    fastest = []
+    for item in fires:
+        text, value = five_g_latency(item)
+        verdict = "-"
+        if value is not None:
+            verdict = "低时延" if value <= FIRE_LOW_LATENCY_S else "高时延"
+            fastest.append(value)
+        rows.append((item.get("msg_id", ""), text, verdict))
+    print()
+    info("火情 5G 主路端到端时延（最近 {} 条：端侧发送→核心接收，秒）".format(len(fires)))
+    table(("消息", "5G 时延(s)", "判定"), rows or [("-", "-", "no records")])
+    if not fires:
+        info("火情由视频流终端随 start_video_stream 每 {}s 上报一条（空表=火情业务未在发）".format(int(FIRE_REPORT_INTERVAL)))
+        return 0
+    print()
+    info("火情为高可靠低时延业务：经 5G 主路即时转发（critical 通道，调度权重最高），拥塞时限速不改变其转发时延")
+    limit = state.get("rate_limit_mbps")
+    if limit is not None:
+        info("拥塞场景生效：全局限速 {:.2f} Mbps（limit-rate）".format(float(limit)))
+    else:
+        info("当前未限速；可先执行 ./limit_rate.sh --rate 1 制造拥塞场景后复测对比")
+    if fastest:
+        info("5G 主路统计：平均 {:.1f}s / 最大 {:.1f}s（低时延门限 {}s）".format(
+            sum(fastest) / len(fastest), max(fastest), int(FIRE_LOW_LATENCY_S)))
+        if max(fastest) <= FIRE_LOW_LATENCY_S:
+            ok("高可靠低时延业务（火情）经 5G 在{}保持低时延转发".format(
+                "拥塞（限速 {:.2f} Mbps）场景下".format(float(limit)) if limit is not None else "当前场景下"))
+        else:
+            warn("火情 5G 时延超过 {}s 门限，检查 5G 链路状态".format(int(FIRE_LOW_LATENCY_S)))
+    else:
+        warn("最近火情均无 5G 接收记录（5G 断开或转发门未开）")
+    return 0
+
+
 def cmd_whitelist_add(args) -> int:
     """大纲 2.2.4 可信接入第一步：白名单由服务器下发（只读），
     本命令从服务器拉取并打印；传入的设备 ID 逐个做在册核对。
@@ -2478,6 +2542,11 @@ def build_parser():
     item.add_argument("--limit", type=int, default=20)
     item.add_argument("--json", action="store_true")
     item.set_defaults(function=cmd_query_link_data)
+
+    item = sub.add_parser("query-fire-latency")
+    item.add_argument("--count", type=int, default=5,
+                      help="显示最近 N 条火情消息（默认 5）")
+    item.set_defaults(function=cmd_query_fire_latency)
 
     for command, source_kind in (("start-video", "video"), ("start-sensor", "sensor"), ("start-env", "env"),
                                  ("start-light", "light")):
