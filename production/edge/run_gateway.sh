@@ -39,6 +39,11 @@ fi
 # 通道送达核心（控制台输出保持电台/卫星口径）。真机接电台/串口时设
 # EDGE_RADIO_OVER_5G=0 恢复硬件通道。
 export EDGE_RADIO_OVER_5G="${EDGE_RADIO_OVER_5G:-1}"
+# 短波/卫星专用转发链路（radio relay，与中转同机的加法部署）：联调帧
+# 优先推入口 11450，云端从出口 11550 拉接收表（query_relay_state.sh）。
+# 默认写死指向中转机（EDGE_CLOUD_HOST 覆盖时跟随）；推送失败自动回退
+# 统一上行/11503。置空 EDGE_RADIO_RELAY_URL= 可恢复不经专用链路。
+export EDGE_RADIO_RELAY_URL="${EDGE_RADIO_RELAY_URL-http://${EDGE_CLOUD_HOST:-47.99.47.169}:11450}"
 # 卫星发送周期覆盖（默认 300s，见 edge_config.py）；仅在设置时生效。
 [[ -n "${EDGE_SATELLITE_INTERVAL:-}" ]] && GATEWAY_ARGS+=(--satellite-interval "$EDGE_SATELLITE_INTERVAL")
 

@@ -275,9 +275,10 @@ ssh <中转机> "cd ~/radio-relay && nohup python3 -u radio_link_relay.py >/dev/
 #   curl -s http://127.0.0.1:11450/health   （入口，role=ingress）
 #   curl -s http://127.0.0.1:11550/health   （出口，role=egress）
 
-# ② 边缘网关（联调模式额外设一个环境变量即可，时延/节奏口径不变）
-export EDGE_RADIO_RELAY_URL=http://<中转机IP>:11450
+# ② 边缘网关（无需任何设置：run_gateway.sh 已默认启用专用链路，指向中转机 11450）
 ./run_gateway.sh        # 短波/卫星联调帧改推专用链路；推送失败自动回退统一上行
+# （EDGE_CLOUD_HOST 覆盖自建测试中转时 URL 自动跟随；置空
+#   EDGE_RADIO_RELAY_URL= 恢复不经专用链路）
 
 # ③ 云端管理节点查询（不单开脚本：接收记录已并入大纲查询步骤的 query_relay_state.sh，
 #    出口 11550，未部署时该节自动跳过；调整前/后增量用 RADIO_AFTER 游标）
@@ -287,8 +288,8 @@ RADIO_AFTER=<seq> bash cloud/query_relay_state.sh      # 调整后增量记录
 
 说明：链路时延/节奏仍在边缘实现（短波 20±3s 占道、卫星立即落地约 2 分钟
 一条），转发器只忠实转发并记录 `sent_at/received_at`（表中时延列为专用链路
-网络时延，含两端时钟偏差，仅供参考）；不设 `EDGE_RADIO_RELAY_URL` 时一切
-维持既有路径（统一上行 + 11503 卫星入库口）。
+网络时延，含两端时钟偏差，仅供参考）；置空 `EDGE_RADIO_RELAY_URL=` 时恢复
+既有路径（统一上行 + 11503 卫星入库口）。
 
 ## 端到端验证（生产只读）
 

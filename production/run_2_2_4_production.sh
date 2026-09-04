@@ -29,6 +29,10 @@ PROD_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROD_DIR"
 
 RELAY_HOST="${RELAY_HOST:-47.99.47.169}"
+# 短波/卫星专用转发链路（radio relay 加法部署于中转机，跟随 RELAY_HOST）：
+# 联调帧推入口 11450，第 7 步 query_relay_state.sh 从出口 11550 拉接收表。
+# 默认写死启用；置空 EDGE_RADIO_RELAY_URL= 恢复不经专用链路（统一上行/11503）。
+RADIO_RELAY_URL="${EDGE_RADIO_RELAY_URL-http://$RELAY_HOST:11450}"
 EDGE_JSON_PORT="${EDGE_JSON_PORT:-18888}"
 EDGE_MEDIA_PORT="${EDGE_MEDIA_PORT:-17777}"
 EDGE_BAOTONG_PORT="${EDGE_BAOTONG_PORT:-19118}"
@@ -130,9 +134,7 @@ done
 echo "接入端口 $EDGE_JSON_PORT/$EDGE_MEDIA_PORT 空闲；中转目标 $RELAY_HOST:11500"
 echo "三终端设备 ID：视频 $DEVICE_VIDEO（有线）/ 传感器 $DEVICE_SENSOR（Wi-Fi）/ 环境监测 $DEVICE_ENV（轮换）"
 echo "直发模式：短波时延 ${SW_DELAY_S}±${SW_JITTER_S}s / 卫星节奏 ${SAT_DELAY_S}±${SAT_JITTER_S}s 一条（立即落地、连续发送；回看等待 SAT_LAND_WAIT=${SAT_LAND_WAIT}s）"
-if [[ -n "${EDGE_RADIO_RELAY_URL:-}" ]]; then
-  echo "短波/卫星专用转发链路: $EDGE_RADIO_RELAY_URL（联调帧改推专用链路；接收记录并入第 7 步 query_relay_state.sh 的接收表打印）"
-fi
+echo "短波/卫星专用转发链路: $RADIO_RELAY_URL（默认启用；联调帧推专用链路，失败自动回退；接收表在第 7 步 query_relay_state.sh 打印；置空 EDGE_RADIO_RELAY_URL= 可关）"
 
 section '1  启动边缘网关（生产参数，默认不受理、不转发）'
 mkdir -p "$STATE_DIR"
@@ -144,6 +146,7 @@ EDGE_JSON_PORT="$EDGE_JSON_PORT" EDGE_MEDIA_PORT="$EDGE_MEDIA_PORT" \
 EDGE_BAOTONG_PORT="$EDGE_BAOTONG_PORT" EDGE_BAOTONG_HOST=127.0.0.1 \
 EDGE_CLOUD_HOST="$RELAY_HOST" \
 EDGE_RADIO_OVER_5G=1 \
+EDGE_RADIO_RELAY_URL="$RADIO_RELAY_URL" \
 EDGE_SW_DELAY_S="$SW_DELAY_S" EDGE_SW_JITTER_S="$SW_JITTER_S" \
 EDGE_SAT_DELAY_S="$SAT_DELAY_S" EDGE_SAT_JITTER_S="$SAT_JITTER_S" \
 EDGE_SATELLITE_INTERVAL="$SAT_INTERVAL" \
