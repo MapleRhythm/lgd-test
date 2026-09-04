@@ -279,9 +279,10 @@ ssh <中转机> "cd ~/radio-relay && nohup python3 -u radio_link_relay.py >/dev/
 export EDGE_RADIO_RELAY_URL=http://<中转机IP>:11450
 ./run_gateway.sh        # 短波/卫星联调帧改推专用链路；推送失败自动回退统一上行
 
-# ③ 云端管理节点查询（大纲 2.2.4/2.2.5 接收记录核对，只读，走出口 11550）
-bash cloud/query_radio_records.sh                 # 短波/卫星各一张表（最近 20 条）
-bash cloud/query_radio_records.sh --after <seq>   # 调整后增量记录
+# ③ 云端管理节点查询（不单开脚本：接收记录已并入大纲查询步骤的 query_relay_state.sh，
+#    出口 11550，未部署时该节自动跳过；调整前/后增量用 RADIO_AFTER 游标）
+bash cloud/query_relay_state.sh                        # 白名单/设备状态 + 短波/卫星接收表
+RADIO_AFTER=<seq> bash cloud/query_relay_state.sh      # 调整后增量记录
 ```
 
 说明：链路时延/节奏仍在边缘实现（短波 20±3s 占道、卫星立即落地约 2 分钟

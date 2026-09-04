@@ -131,7 +131,7 @@ echo "接入端口 $EDGE_JSON_PORT/$EDGE_MEDIA_PORT 空闲；中转目标 $RELAY
 echo "三终端设备 ID：视频 $DEVICE_VIDEO（有线）/ 传感器 $DEVICE_SENSOR（Wi-Fi）/ 环境监测 $DEVICE_ENV（轮换）"
 echo "直发模式：短波时延 ${SW_DELAY_S}±${SW_JITTER_S}s / 卫星节奏 ${SAT_DELAY_S}±${SAT_JITTER_S}s 一条（立即落地、连续发送；回看等待 SAT_LAND_WAIT=${SAT_LAND_WAIT}s）"
 if [[ -n "${EDGE_RADIO_RELAY_URL:-}" ]]; then
-  echo "短波/卫星专用转发链路: $EDGE_RADIO_RELAY_URL（联调帧改推专用链路；云端用 production/cloud/query_radio_records.sh 拉取）"
+  echo "短波/卫星专用转发链路: $EDGE_RADIO_RELAY_URL（联调帧改推专用链路；接收记录并入第 7 步 query_relay_state.sh 的接收表打印）"
 fi
 
 section '1  启动边缘网关（生产参数，默认不受理、不转发）'

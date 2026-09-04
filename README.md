@@ -67,7 +67,7 @@ start 命令默认**后台持续发送**——终端只显示一行 `[LAUNCH]`�
 | `production/edge/` | 边缘网关真机 | `./run_gateway.sh`（默认连生产中转 47.99.47.169:11500）；`./edge_forward.sh --start` 建立转发 |
 | `production/relay/` | 中转服务器（加法部署） | `python3 radio_link_relay.py`（短波/卫星专用转发链路，11450→11550 双端口自包含单文件；server_v8 与既有端口不动） |
 | `production/device/` | 端侧设备真机 | `export EDGE_HOST=<网关IP>` 后 `./run_2_2_3.sh`（大纲全流程） |
-| `production/cloud/` | 任意位置 | `bash query_relay_state.sh`（生产只读验证：11502 白名单 + 11501 设备状态 + 服务器 STAT 对账） |
+| `production/cloud/` | 任意位置 | `bash query_relay_state.sh`（生产只读验证：11502 白名单 + 11501 设备状态 + 短波/卫星接收记录表（radio relay 出口 11550，未部署自动跳过）+ 服务器 STAT 对账） |
 | 根目录 | 联调机 | `./run_2_2_3_production.sh`（单机联调，端口与演示错开） |
 
 硬约束：远端中转为生产环境**只读**，不改动远端代码与白名单，只借用白名单内设备 ID；

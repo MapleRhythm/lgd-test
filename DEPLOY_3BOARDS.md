@@ -371,8 +371,10 @@ ssh <中转机> "cd ~/radio-relay && nohup python3 -u radio_link_relay.py >/dev/
 # ② 边缘板起网关前加一个环境变量(指向入口 11450;时延/节奏口径不变,失败自动回退统一上行)
 export EDGE_RADIO_RELAY_URL=http://47.99.47.169:11450
 
-# ③ 云侧查询(2.2.4/2.2.5 接收记录,走出口 11550;调整前/后用 --after 游标增量)
-RELAY_HOST=47.99.47.169 bash ~/lgd-test/production/cloud/query_radio_records.sh
+# ③ 云侧查询(不单开脚本:接收记录已并入大纲查询步骤的 query_relay_state.sh,
+#    走出口 11550,未部署时该节自动跳过;调整前/后增量用 RADIO_AFTER 游标)
+RELAY_HOST=47.99.47.169 bash ~/lgd-test/production/cloud/query_relay_state.sh
+RADIO_AFTER=<seq> RELAY_HOST=47.99.47.169 bash ~/lgd-test/production/cloud/query_relay_state.sh
 ```
 
 不设 `EDGE_RADIO_RELAY_URL` 时一切走既有路径(统一上行+11503),该部署
