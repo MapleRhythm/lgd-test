@@ -553,7 +553,11 @@ def proposed_routes(state: dict, biz_type: str):
         "image": ["5g"],
         "sensor": ["5g"],
         "env": ["5g"],
-        "critical-sensor": ["satellite"],
+        # 判定段（步骤1）：「所有业务通过5G链路传输……关键业务通过卫星
+        # 链路传输」——关键传感器（风速）也走 5G 主路，卫星是同步冗余；
+        # 步骤1 的「同步经卫星接入模块转发」与告警「同时经 5G 与短波」
+        # 同一句式（0347）。
+        "critical-sensor": ["5g", "satellite"],
         "fire": ["5g", "shortwave", "satellite"],
         "control": ["5g", "shortwave", "satellite"],
         "alarm": ["5g", "shortwave", "satellite"],
@@ -1607,8 +1611,8 @@ def source_command(args, source_kind: str) -> int:
     critical_thread = None
     if source_kind == "env" and not getattr(args, "no_critical_report", False):
         # 关键传感器信息随环境监测终端上报（同一设备身份、有线接入）：
-        # 每 2 分钟一条 critical-sensor，正常经卫星接入模块同步转发，
-        # 5G 降级后短波+卫星双路承载（大纲 2.2.5 条目2/3）。
+        # 每 2 分钟一条 critical-sensor，正常走 5G 主路并经卫星接入模块
+        # 同步冗余转发，5G 降级后短波+卫星双路承载（大纲 2.2.5 条目2/3）。
         def critical_reporter():
             while not critical_stop.is_set():
                 critical_results.append(emit_message(current_device_id(), "critical-sensor", "wired", transport="TCP"))
