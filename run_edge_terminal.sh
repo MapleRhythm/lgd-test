@@ -210,6 +210,11 @@ if isinstance(links, dict):
         if isinstance(node, dict) and node.get("online"):
             node["online"] = False
             changed = True
+# 卫星低速率承载游标/队列同样随新会话回基线：上一会话排队未上星的旧帧
+# 不跨会话落到本会话的云端台账（台账已清，承载队列一并清空才对齐）。
+if isinstance(state.get("satellite_link"), dict):
+    state["satellite_link"] = {"next_free": 0.0, "queue": {}}
+    changed = True
 if changed:
     # tmp + os.replace 原子替换（与运行时 save_state 同法）：杜绝
     # open("w") 先截断、写一半被打断留下 0 字节 state.json。

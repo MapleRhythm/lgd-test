@@ -4071,9 +4071,10 @@ class SatelliteUplink(threading.Thread):
         """联调模式卫星上行：不走串口/AT 指令，帧入队日志与串口版一致。
         联调节奏（与演示版同口径）：帧造出后立即送达云端卫星接收口，随后
         按 link_delay_s±link_jitter_s（默认约 2 分钟）的节奏发下一条——
-        卫星链路约 2 分钟一条、连续发送，不是把每帧压住 2 分钟再落地的
-        时延口径。串口版身份帧周期（--satellite-interval，默认 300s）在
-        联调模式不参与节奏；传 0 仍表示发一条后空闲（诊断用）。"""
+        边缘侧不压帧；服务器侧另有压制（server_v8 卫星转发：收帧入
+        SQLite 待发表，按间隔逐条 ACK 转发 11410 给核心网关），核心收到
+        因此滞后于边缘发送。串口版身份帧周期（--satellite-interval，
+        默认 300s）在联调模式不参与节奏；传 0 仍表示发一条后空闲（诊断用）。"""
         log(
             "[SATELLITE][MAIN] uplink started configured_port={} baud={} "
             "gateway={} interval={}s data_type={} query_queue={}".format(

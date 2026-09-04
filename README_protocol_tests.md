@@ -287,7 +287,7 @@ PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh
 ```bash
 ./start_video_stream.sh           # 视频流业务（默认后台持续发送，一行 [LAUNCH] 即回提示符）
 ./start_sensor_data.sh            # 传感器业务（默认后台持续发送；过滤生效后自动变为非法设备）
-./start_env_data.sh               # 环境监测业务（默认后台持续发送；随终端每 2 分钟一条关键传感器上报，经卫星同步转发）
+./start_env_data.sh               # 环境监测业务（默认后台持续发送；随终端每 2 分钟一条关键传感器上报，经卫星同步转发，卫星表滞后约 2 分钟显示）
 ./multi_source_access.sh          # 边缘网关终端：此后边缘才开始受理端侧数据
 ./query_service_log.sh            # 边缘网关终端
 ./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（默认按上行链路分 5G/卫星/短波三张表）
@@ -325,7 +325,10 @@ edge_online=False，核心随即判定边缘离线）、向边缘网关发送 5G
 （环境监测终端风速量）经卫星接入模块同步冗余转发，告警/控制亦同步经
 卫星（条目3 引文）；5G 低于阈值后短波改为传输关键
 传感器数据与告警/控制信息，卫星链路传输内容不变（关键传感器信息与
-告警/控制），关键业务持续传输不中断。短波行为与真网关一致
+告警/控制），关键业务持续传输不中断。卫星腿按现场口径（server_v8
+卫星转发）约 2 分钟承载一条（FIFO，同业务只发最新一帧），服务器收到
+后再压约 2 分钟才传给核心网关——卫星接收表约 2 分钟一条、每行滞后约
+2 分钟出现（表窗 10 分钟；压制中的记录不显示）。短波行为与真网关一致
 （gateway_merged.py 应答选择）：5G 正常时短波只应答 fire；5G 断开后
 fire/windspeed **按次轮换**应答（一条短信只装一种；"关键传感器数据"
 即风速数据）——本地模型在 route.jsonl 记 `shortwave_answer/
@@ -348,7 +351,7 @@ Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）由
 ```bash
 ./cloud-mgr.sh --start
 ./start_uplink_transfer.sh
-./query_link_data.sh              # 三张按链路接收表：表窗跟随链路节奏（5G 最近 10 秒 / 短波 2 分钟 / 卫星 10 分钟）
+./query_link_data.sh              # 三张按链路接收表：表窗跟随链路节奏（5G 最近 10 秒 / 短波 2 分钟 / 卫星 10 分钟；卫星约 2 分钟承载一条、服务器压约 2 分钟后到核心，行滞后约 2 分钟出现）
 ./policy-route.sh --start   # 大纲 2.2.5 条目3：策略路由启动
 ./link_block.sh --stop
 ./link-monitor.sh

@@ -102,9 +102,18 @@ DEMO_DEVICE_IDS = {
 # 20s 即短波链路的发送节奏（告警/控制约 20s 一条，与生产电台口径一致）。
 FIRE_REPORT_INTERVAL = 20.0
 # 关键传感器上报周期：随环境监测终端每 2 分钟一条 critical-sensor——
-# 卫星链路"约 2 分钟一条、连续发送"的节奏来源（正常经卫星同步转发，
-# 5G 降级后短波+卫星双路承载），不是把报文压住 2 分钟再突发。
+# 端侧上报节奏（正常走 5G 主路并经卫星同步转发，5G 降级后短波+卫星
+# 双路承载）。
 CRITICAL_REPORT_INTERVAL = 120.0
+# 卫星腿承载与服务器压制（现场口径，对齐 server_v8 卫星转发模块）：
+# 低速率卫星链路约 2 分钟承载一条（FIFO 出队，同业务只保留最新一帧，
+# 与 server_v8 SQLite 待发表一致）；服务器收到帧后再压约 2 分钟才传给
+# 核心网关——云端台账的卫星记录按"到达核心"时刻落 received_at（承载
+# 时刻+压制时长），卫星接收表因此滞后约 2 分钟出现、约 2 分钟一条。
+SATELLITE_LINK_INTERVAL = 120.0
+SATELLITE_LINK_JITTER = 10.0
+SATELLITE_SERVER_HOLD = 120.0
+SATELLITE_HOLD_JITTER = 10.0
 # 服务器白名单内的借用设备（与本地中转分发的名单一致）。固定为这五个 ID：
 # 传感器终端的非法设备身份只用于发送，绝不能混进本地白名单。
 DEFAULT_WHITELIST = ["182D48D7", "3C15DB07", "990E261B", "EA1D2801", "DEV-001"]
@@ -511,6 +520,55 @@ def payload_size_for(biz_type: str) -> int:
         "alarm": 256,
         "control-alarm": 256,
     }.get(normalize_biz_type(biz_type), 1024)
+
+
+def _satellite_carry(outgoing: dict, size: int):
+    """把一条待上星帧交给低速率卫星链路，返回本次实际承载的帧。
+
+    现场口径（与 server_v8 卫星转发同构）：链路游标每
+    SATELLITE_LINK_INTERVAL±jitter 一格，一格只承载一条，FIFO 出队
+    （同 server_v8 SQLite 待发表逐条转发）；排队期间同业务旧帧被最新
+    一帧覆盖（低速率链路只发最新状态，被覆盖帧记 satellite_superseded
+    台账）。承载时刻由返回的 slot 给出，调用方再叠加服务器压制时长
+    （SATELLITE_SERVER_HOLD）作为到达核心时刻。返回 [(record, size, slot)]。
+    """
+    biz_type = normalize_biz_type(outgoing.get("biz_type", ""))
+    msg_id = str(outgoing.get("msg_id", ""))
+
+    def carry(current):
+        leg = current.get("satellite_link")
+        if not isinstance(leg, dict):
+            leg = current["satellite_link"] = {"next_free": 0.0, "queue": {}}
+        queue = leg.setdefault("queue", {})
+        previous = queue.get(biz_type)
+        if isinstance(previous, dict) and previous.get("msg_id") != msg_id:
+            append_record("edge.jsonl", {
+                "timestamp": now_iso(), "stage": "satellite_superseded",
+                "device_id": outgoing.get("device_id", ""), "biz_type": biz_type,
+                "msg_id": previous.get("msg_id", ""), "replaced_by": msg_id,
+                "link_id": "satellite",
+            })
+        queue[biz_type] = {"record": outgoing, "size": size}
+        now = time.time()
+        carried = []
+        while queue:
+            next_free = float(leg.get("next_free") or 0.0)
+            if next_free > now:
+                break
+            pick = next(iter(queue))  # FIFO：先入队的业务先上星
+            entry = queue.pop(pick)
+            slot = max(now, next_free)
+            leg["next_free"] = slot + SATELLITE_LINK_INTERVAL + random.uniform(
+                -SATELLITE_LINK_JITTER, SATELLITE_LINK_JITTER)
+            link = current["links"]["satellite"]
+            link.update(
+                packets=int(link.get("packets", 0)) + 1,
+                bytes=int(link.get("bytes", 0)) + int(entry.get("size", 0)),
+            )
+            carried.append((entry["record"], int(entry.get("size", 0)), slot))
+        return carried
+
+    return mutate_state(carry)
 
 
 def ingress_link_for(index: int) -> str:
@@ -1026,6 +1084,10 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
 
     forwarded = []
     for link_id in actual:
+        if link_id == "satellite":
+            # 卫星腿不在即时转发循环里：低速率承载+服务器压制见下方
+            # _satellite_carry（约 2 分钟承载一条、压约 2 分钟才到核心）。
+            continue
         outgoing = dict(payload)
         outgoing["biz_type"] = biz_type
         outgoing["type"] = biz_type
@@ -1052,6 +1114,36 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
             "classification": "control-alarm" if biz_type in {"fire", "control", "alarm", "control-alarm"} else biz_type,
             "forward_status": "accepted" if state.get("cloud_manager_enabled") else "queued",
         })
+    if "satellite" in actual:
+        outgoing = dict(payload)
+        outgoing["biz_type"] = biz_type
+        outgoing["type"] = biz_type
+        outgoing["link_id"] = "satellite"
+        outgoing["gateway"] = state.get("gateway_id", "gateway_1")
+        outgoing["edge_gateway"] = state.get("gateway_id", "gateway_1")
+        size = int(outgoing.get("data_content", {}).get("payload_bytes", payload_size_for(biz_type))) if isinstance(outgoing.get("data_content"), dict) else payload_size_for(biz_type)
+        forwarded.append("satellite")
+        # 本次/排队中被承载的帧：云端记录按到达核心时刻（承载时刻+服务器
+        # 压制 SATELLITE_SERVER_HOLD±jitter）落 received_at——在未来的记录
+        # 查询表不显示（尚未传给核心网关）。
+        for carried, carried_size, slot in _satellite_carry(outgoing, size):
+            append_record("edge.jsonl", {
+                "timestamp": now_iso(), "stage": "forwarded", "transport": transport,
+                "device_id": carried.get("device_id", ""), "biz_type": carried.get("biz_type", ""),
+                "msg_id": carried.get("msg_id", ""), "link_id": "satellite",
+                "bytes": carried_size, "status": "sent",
+            })
+            landing = slot + SATELLITE_SERVER_HOLD + random.uniform(
+                -SATELLITE_HOLD_JITTER, SATELLITE_HOLD_JITTER)
+            append_record("cloud.jsonl", {
+                **carried,
+                "received_at": datetime.fromtimestamp(
+                    landing, timezone.utc).isoformat(timespec="milliseconds"),
+                "stage": "parsed_classified",
+                "parse_status": "ok",
+                "classification": "control-alarm" if carried.get("biz_type") in {"fire", "control", "alarm", "control-alarm"} else carried.get("biz_type", ""),
+                "forward_status": "accepted" if state.get("cloud_manager_enabled") else "queued",
+            })
     result = {"accepted": True, "forwarded": forwarded, "selected": actual, "reason": reason}
     if shortwave_answer is not None:
         result["shortwave_answer"] = shortwave_answer
@@ -1107,6 +1199,8 @@ def cmd_init(args) -> int:
             state["multi_source_enabled"] = False
             state["whitelist_filter_enabled"] = False
             state["cloud_manager_enabled"] = True
+            # 卫星低速率承载队列同样随新会话清空：残留旧帧不跨会话上星。
+            state.pop("satellite_link", None)
         else:
             # 大纲 2.2.3 步骤1：初始化接入链路即开始受理端侧接入。
             state["multi_source_enabled"] = True
@@ -1410,15 +1504,21 @@ def cmd_edge_forward(args) -> int:
 
 
 def _record_age_le(record: dict, seconds: float) -> bool:
-    """云端接收记录是否落在最近 seconds 窗口内（按 received_at 判定）。
+    """云端接收记录是否已到达且落在最近 seconds 窗口内（按 received_at 判定）。
 
+    received_at 在未来 = 服务器压制中的卫星帧，尚未传给核心网关——不显示；
     无/坏时间戳的记录不隐藏（演示现场宁可多显、不少显）。"""
     try:
         received = datetime.fromisoformat(str(record.get("received_at", "")))
         age = (datetime.now(timezone.utc) - received).total_seconds()
     except (ValueError, TypeError):
         return True
-    return age <= seconds
+    return 0 <= age <= seconds
+
+
+def _record_arrived(record: dict) -> bool:
+    """云端记录是否已到达核心网关（received_at 不在未来）。"""
+    return _record_age_le(record, float("inf"))
 
 
 def cmd_query_link_data(args) -> int:
@@ -1444,8 +1544,9 @@ def cmd_query_link_data(args) -> int:
     table(("Uplink", "State"), rows)
     # 大纲 2.2.3 步骤10：查询 5G 信道、短波工控设备及卫星接入模块接收到的
     # 业务数据——与云端日志查询同格式，按上行链路分三张表（表题即接收方，
-    # 对齐大纲措辞）；表窗跟随各链路发送节奏：5G 承载秒级业务看最近 10 秒，
-    # 短波约 20s 一条看最近 2 分钟，卫星约 2 分钟一条看最近 10 分钟；
+    # 对齐大纲措辞）；表窗跟随各链路到达节奏：5G 承载秒级业务看最近 10 秒，
+    # 短波约 20s 一条看最近 2 分钟，卫星约 2 分钟承载一条、且经服务器压制
+    # 约 2 分钟才到核心网关，看最近 10 分钟（压制中的未来记录不显示）；
     # --limit 作用于每张表（窗口内最多取最近 N 条）。
     print("")
     columns = ("Device", "Business", "Message", "Class", "Parse")
@@ -1684,12 +1785,12 @@ def cmd_fire_alarm(args) -> int:
     table(("Item", "Value"), [
         ("火情状态", "有火情" if fire_on else "无火情"),
         ("fire 报文载荷", '"fire": "{}"'.format("true" if fire_on else "false")),
-        ("上报终端", "视频流终端 {}（每10s一条，随 start_video_stream）".format(DEMO_DEVICE_IDS["video"])),
+        ("上报终端", "视频流终端 {}（每20s一条，随 start_video_stream）".format(DEMO_DEVICE_IDS["video"])),
     ])
     if fire_on:
         warn_red("火情已触发：视频流终端后续 fire 上报载荷为 true")
     else:
-        ok("无火情：视频流终端每10s上报 fire=false")
+        ok("无火情：视频流终端每20s上报 fire=false")
     return 0
 
 
@@ -1773,6 +1874,9 @@ def cmd_query_cloud_log(args) -> int:
         return True
 
     records = [item for item in records if keep(item)]
+    # 卫星帧在服务器压制中（received_at 在未来）尚未到达核心网关，显示层
+    # 先隐藏；--verify 核对用全量记录（云端管道已有，到达只是时间问题）。
+    visible = [item for item in records if _record_arrived(item)]
 
     # 按上行链路分三张表（5G/卫星/短波）：云端记录的 link_id 即边缘→云端
     # 的承载通道（一条报文走多通道时各通道各记一条）；链路名并入表题，
@@ -1785,7 +1889,7 @@ def cmd_query_cloud_log(args) -> int:
             (item.get("device_id", ""), item.get("biz_type", ""),
              item.get("msg_id", ""), item.get("classification", ""),
              item.get("parse_status", ""))
-            for item in records
+            for item in visible
             if str(item.get("link_id", "")) == channel
         ][-args.limit:]
         if index:
