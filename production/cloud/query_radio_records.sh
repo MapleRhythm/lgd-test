@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 短波/卫星专用转发链路接收记录查询（大纲 2.2.4/2.2.5 云端查询·只读）。
 #
-# 数据源是 radio_link_relay（与 server_v8 同机的加法部署，默认端口 19400）：
+# 数据源是 radio_link_relay（与 server_v8 同机的加法部署，拉取出入口
+# 11550；边缘推送走入口 11450，两端口分工见 production/relay/）：
 # 短连接 GET /records，带 seq 游标——没有可僵尸化的长连接（坑17），且历史
 # 可回放（调整前/调整后各查一次，用 --after 游标增量取新记录）。
 # 链路时延/节奏在边缘网关实现（短波 20±3s 占道、卫星立即落地约 2 分钟
@@ -17,7 +18,7 @@
 set -Eeuo pipefail
 
 RELAY_HOST="${RELAY_HOST:-47.99.47.169}"
-RELAY_PORT="${RADIO_RELAY_PORT:-19400}"
+RELAY_PORT="${RADIO_RELAY_PORT:-11550}"
 
 python3 - "$RELAY_HOST" "$RELAY_PORT" "$@" <<'PY'
 import datetime

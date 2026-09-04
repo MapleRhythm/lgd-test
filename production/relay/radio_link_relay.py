@@ -3,11 +3,15 @@
 
 背景：server_v8 现网的业务下发口（11400-11409）是长连接消费模型，
 消费端过 5G NAT 闲置即被静默断连，死连接留在共享队列里抢报文
-（见 DEPLOY_3BOARDS.md 坑17）。本转发器对远端只做"加法"：新开一个
-HTTP 口（默认 19400），短波/卫星帧经 POST /push 入库，云端管理节点
-用 GET /records 短连接拉取（seq 游标、可回放历史）——一来一回即断，
-不存在可僵尸化的长连接；server_v8 本体与既有 114xx/115xx 端口
-不受影响。
+（见 DEPLOY_3BOARDS.md 坑17）。本转发器对远端只做"加法"：新开两个
+HTTP 口（默认 11450→11550），短波/卫星帧经入口 POST /push 入库，
+云端管理节点从出口 GET /records 短连接拉取（seq 游标、可回放历史）
+——一来一回即断，不存在可僵尸化的长连接；server_v8 本体与既有
+114xx/115xx 端口不受影响。
+
+自包含单文件：默认值全部内置，服务器上无需任何 sh 启动脚本，直接
+    nohup python3 -u radio_link_relay.py >/dev/null 2>&1 &
+即可（如需改端口/状态目录再带 --ingress-port 等参数）。
 
 链路时延不在本转发器：短波的信道时延/占道语义（默认 20±3s、同一
 时刻仅一条在信道上、新数据顶掉旧的）与卫星的"立即落地 + 约 2 分钟
@@ -33,6 +37,11 @@ MAX_BODY_BYTES = 256 * 1024
 # /records 单次返回上限。
 MAX_LIMIT = 500
 DEFAULT_LIMIT = 50
+
+# 双端口拓扑：入口收边缘推送，出口供云端拉取（两端口都不与 server_v8
+# 既有 11400-11421 / 11500-11511 冲突）。
+DEFAULT_INGRESS_PORT = 11450
+DEFAULT_EGRESS_PORT = 11550
 
 
 def now_iso():
@@ -119,7 +128,9 @@ class RecordStore(object):
         return {"total": total, "per_link": per_link}
 
 
-def make_handler(store, started_at):
+def make_handler(store, started_at, role):
+    """role="ingress"（收边缘推送）或 "egress"（供云端拉取）。"""
+
     class RadioRelayHandler(BaseHTTPRequestHandler):
         server_version = "RadioRelay/1.0"
 
@@ -143,6 +154,13 @@ def make_handler(store, started_at):
             self.end_headers()
 
         def do_POST(self):
+            if role != "ingress":
+                self._send_json(404, {
+                    "status": "error",
+                    "error": "POST /push is on the ingress port "
+                             "(default {})".format(DEFAULT_INGRESS_PORT),
+                })
+                return
             if self.path.split("?", 1)[0] != "/push":
                 self._send_json(404, {"status": "error", "error": "not found"})
                 return
@@ -192,6 +210,7 @@ def make_handler(store, started_at):
             if path == "/health":
                 result = {
                     "status": "ok",
+                    "role": role,
                     "time": now_iso(),
                     "uptime_s": round(time.time() - started_at, 1),
                     "state_file": store.path,
@@ -201,6 +220,13 @@ def make_handler(store, started_at):
                 return
 
             if path == "/records":
+                if role != "egress":
+                    self._send_json(404, {
+                        "status": "error",
+                        "error": "GET /records is on the egress port "
+                                 "(default {})".format(DEFAULT_EGRESS_PORT),
+                    })
+                    return
                 params = self._query_params()
                 link = params.get("link", "all")
                 try:
@@ -248,11 +274,27 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="短波/卫星专用转发链路（POST /push + GET /records）"
+        description="短波/卫星专用转发链路（入口 POST /push → 出口 GET /records）"
     )
-    parser.add_argument("--host", default="0.0.0.0", help="listen host")
     parser.add_argument(
-        "--port", type=int, default=19400, help="listen port (default 19400)"
+        "--ingress-host", default="0.0.0.0",
+        help="ingress listen host (edge pushes here)",
+    )
+    parser.add_argument(
+        "--ingress-port", type=int, default=DEFAULT_INGRESS_PORT,
+        help="ingress port, edge POST /push (default {})".format(
+            DEFAULT_INGRESS_PORT
+        ),
+    )
+    parser.add_argument(
+        "--egress-host", default="0.0.0.0",
+        help="egress listen host (cloud pulls here)",
+    )
+    parser.add_argument(
+        "--egress-port", type=int, default=DEFAULT_EGRESS_PORT,
+        help="egress port, cloud GET /records (default {})".format(
+            DEFAULT_EGRESS_PORT
+        ),
     )
     parser.add_argument(
         "--state-dir",
@@ -264,20 +306,34 @@ def main():
     args = parser.parse_args()
 
     store = RecordStore(args.state_dir)
-    server = ThreadingHTTPServer(
-        (args.host, args.port), make_handler(store, time.time())
+    started_at = time.time()
+    ingress = ThreadingHTTPServer(
+        (args.ingress_host, args.ingress_port),
+        make_handler(store, started_at, "ingress"),
     )
-    print("[RADIO-RELAY] listening on {}:{} (state: {})".format(
-        args.host, args.port, store.path
+    egress = ThreadingHTTPServer(
+        (args.egress_host, args.egress_port),
+        make_handler(store, started_at, "egress"),
+    )
+    print("[RADIO-RELAY] 转发拓扑: 入口(边缘推送) {}:{} -> 出口(云端拉取) {}:{}".format(
+        args.ingress_host, args.ingress_port,
+        args.egress_host, args.egress_port,
     ))
-    print("[RADIO-RELAY] endpoints: POST /push | GET /records?link=&after=&limit="
-          " | GET /health")
+    print("[RADIO-RELAY] 入口: POST /push + GET /health | "
+          "出口: GET /records?link=&after=&limit= + GET /health")
+    print("[RADIO-RELAY] state: {}".format(store.path))
+    egress_thread = threading.Thread(
+        target=egress.serve_forever, daemon=True, name="egress-server"
+    )
+    egress_thread.start()
     try:
-        server.serve_forever()
+        ingress.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        egress.shutdown()
+        egress.server_close()
+        ingress.server_close()
         print("[RADIO-RELAY] stopped")
 
 

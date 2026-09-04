@@ -261,21 +261,25 @@ cd edge
 
 现网业务下发口（11400-11409）是长连接消费模型：消费端过 5G NAT 闲置即被
 静默断连，死连接留在共享队列里抢报文（见 [STEP_BY_STEP.md](STEP_BY_STEP.md)
-坑17）。`relay/` 目录提供**加法**方案：不动 server_v8，在中转服务器上以新
-端口（默认 **19400**）跑伴生转发器，云端用短连接拉取——一来一回即断，
-没有可僵尸化的长连接，且历史可回放（调整前/后用 `--after` 游标增量查询）：
+坑17）。`relay/` 目录提供**加法**方案：不动 server_v8，在中转服务器上以
+**11450→11550** 两个新端口跑伴生转发器——入口 11450 收边缘推送、出口
+11550 供云端短连接拉取，一来一回即断，没有可僵尸化的长连接，且历史可回放
+（调整前/后用 `--after` 游标增量查询）。转发器是自包含单文件 py（默认值
+全部内置，**服务器上不需要任何 sh 启动脚本**）：
 
 ```bash
 # ① 中转服务器（与 server_v8 同机；只加端口，不动现有进程）
 scp -r relay/ <中转机>:~/radio-relay/
-ssh <中转机> "cd ~/radio-relay && nohup ./run_radio_relay.sh >/dev/null 2>&1 &"
-# 记得放行 19400/tcp；验证：curl -s http://127.0.0.1:19400/health
+ssh <中转机> "cd ~/radio-relay && nohup python3 -u radio_link_relay.py >/dev/null 2>&1 &"
+# 记得放行 11450/tcp 与 11550/tcp；验证：
+#   curl -s http://127.0.0.1:11450/health   （入口，role=ingress）
+#   curl -s http://127.0.0.1:11550/health   （出口，role=egress）
 
 # ② 边缘网关（联调模式额外设一个环境变量即可，时延/节奏口径不变）
-export EDGE_RADIO_RELAY_URL=http://<中转机IP>:19400
+export EDGE_RADIO_RELAY_URL=http://<中转机IP>:11450
 ./run_gateway.sh        # 短波/卫星联调帧改推专用链路；推送失败自动回退统一上行
 
-# ③ 云端管理节点查询（大纲 2.2.4/2.2.5 接收记录核对，只读）
+# ③ 云端管理节点查询（大纲 2.2.4/2.2.5 接收记录核对，只读，走出口 11550）
 bash cloud/query_radio_records.sh                 # 短波/卫星各一张表（最近 20 条）
 bash cloud/query_radio_records.sh --after <seq>   # 调整后增量记录
 ```
