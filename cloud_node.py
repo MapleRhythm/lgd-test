@@ -136,8 +136,8 @@ def main() -> None:
     # quiet while the cloud management node and protocol data paths run.
     config_module.BAOTONG_HF_ENABLED = False
     # Demo pacing: keep /latest.json served for 5 minutes after the last
-    # packet so ./query_link_data.sh still shows the live channel table once
-    # a transfer finishes (deployment default in config.py is 30 s).
+    # packet so ./query_link_data.sh can still run its live end-to-end msg_id
+    # check once a transfer finishes (deployment default in config.py is 30 s).
     config_module.JSON_MAX_AGE_SECONDS = 300.0
     # Real-time receive logging: 0 makes gateway_v1 print one
     # [JSON-UP][ch][DETAIL] line for EVERY received business JSON line

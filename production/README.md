@@ -265,8 +265,8 @@ bash cloud/query_relay_state.sh        # RELAY_HOST 默认 47.99.47.169
 
 输出：白名单实时内容与借用设备在册校验、云端设备状态（11501）、
 以及中转服务器上的 STAT 对账指令。中转 `10008+` 不对外，
-live 查询表（演示版 query_link_data 的下半张表）在生产包中没有对应物，
-以中转日志 STAT 计数为准。
+live 端到端核对（演示版 query_link_data 末尾的实时 msg_id 核对）在生产包
+中没有对应物，以中转日志 STAT 计数为准。
 
 ## 单机联调自检（不部署真机时）
 
@@ -296,6 +296,6 @@ live 查询表（演示版 query_link_data 的下半张表）在生产包中没�
 | 三终端 + 本地中转 + 本地云节点 | 真实三节点 + 生产中转，云端不在本地拉起 |
 | protocol_test_runtime（模型记账 + live 混合） | 纯真机协议，无模型状态 |
 | 模拟时延/丢包档案（ping 表） | 实测 TCP 建连 RTT |
-| query_link_data live 通道表（本地云节点 HTTP） | 中转只读面 + 服务器 STAT 对账 |
+| query_link_data live 端到端核对（本地云节点 HTTP） | 中转只读面 + 服务器 STAT 对账 |
 | mock 风速 | 内置模拟 / `--value` / `--values-file` 接真实传感器 |
 | 转发门 marker 在 final/.protocol-test | marker 在 production/edge/.state |

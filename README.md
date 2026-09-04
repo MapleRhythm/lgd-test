@@ -53,7 +53,7 @@ start 命令默认**后台持续发送**——终端只显示一行 `[LAUNCH]`�
 | 7 持续传输（仅有线） | `./keep_transfer.sh --duration 600 --interval 1` | 端侧 |
 | 8 多模态并发传输 | `./multi_link_bandwidth.sh --duration 5` | 端侧 |
 | 9 转发建立后端到端发送 | `./start_test.sh` | 端侧 |
-| 10 端到端链路数据查询 | `./query_link_data.sh`（5G 信道/短波工控设备/卫星接入模块三张接收表 + 云端实时通道表与端到端核对） | 云端 |
+| 10 端到端链路数据查询 | `./query_link_data.sh`（5G 信道/短波工控设备/卫星接入模块三张接收表 + 端到端核对） | 云端 |
 
 > 步骤 6 开门前，业务报文只在边缘接入与分类，不向云端转发（大纲语义）。
 > 详见 [README_protocol_tests.md](README_protocol_tests.md)。

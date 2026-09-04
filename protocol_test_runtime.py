@@ -1453,22 +1453,10 @@ def cmd_query_link_data(args) -> int:
     if cloud_live_enabled():
         print("")
         info("live core gateway verification (real device-edge-relay-cloud path)")
-        # 只轮询本表显示的三条边缘上联通道：卫星页不显示就不采样，
-        # 免得其访问日志（HTTP-SAT）串到云端终端。
+        # 只采样三条边缘上联通道：卫星通道不查询，免得其访问日志
+        # （HTTP-SAT）串到云端终端。
         states = live_cloud_channels_state(
             tuple(ch for ch in CLOUD_LIVE_CHANNELS if ch[0] in LIVE_EDGE_CHANNEL_LABELS))
-        rows = []
-        for entry in states:
-            label = LIVE_EDGE_CHANNEL_LABELS.get(entry["channel"])
-            if label is None:
-                continue
-            row = live_record_row(entry)
-            rows.append((
-                label, entry["uplink_port"], entry["origin"],
-                str(entry["seq"] or "-"), row["msg_id"] or "-", row["device_id"] or "-",
-                row["biz_type"] or "-", row["link_id"] or "-",
-            ))
-        table(("Channel", "Uplink", "Source", "Seq", "Latest msg_id", "Device", "Business", "Link"), rows)
         live_rows = [
             live_record_row(entry)
             for entry in states
