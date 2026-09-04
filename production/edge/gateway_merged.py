@@ -1421,7 +1421,25 @@ def load_radio_over_5g_config():
         "sw_jitter_s": _seconds("EDGE_SW_JITTER_S", 3.0),
         "sat_delay_s": _seconds("EDGE_SAT_DELAY_S", 120.0),
         "sat_jitter_s": _seconds("EDGE_SAT_JITTER_S", 10.0),
+        # 短波/卫星专用转发链路（与 server_v8 同机的加法部署，见
+        # production/relay/radio_link_relay.py）：设置后联调帧不再挤统一
+        # 上行/11503，改推专用链路，云端用短连接 GET /records 拉取——
+        # 没有可僵尸化的长连接（坑17）。留空维持既有路径。
+        "radio_relay_url": os.environ.get("EDGE_RADIO_RELAY_URL", "").strip(),
     }
+
+
+def _post_radio_relay_push(base_url, record):
+    """把一条短波/卫星帧推进专用转发链路（POST <base_url>/push）。"""
+    body = json.dumps(record, ensure_ascii=False).encode("utf-8")
+    request_obj = urllib.request.Request(
+        base_url.rstrip("/") + "/push",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request_obj, timeout=10) as response:
+        response.read()
 
 
 def _jittered_delay(base_s, jitter_s):
@@ -1432,14 +1450,17 @@ def _jittered_delay(base_s, jitter_s):
 
 
 def _dispatch_shortwave_over_5g(
-    baotong_server, delay_s, jitter_s, send_queue, counter
+    baotong_server, delay_s, jitter_s, send_queue, counter,
+    radio_relay_url=""
 ):
     """短波直发联调（配 EDGE_RADIO_OVER_5G）：现网为主站轮询架构，联调时
     核心不呼叫，边缘在短波信道时延后直接把最新业务短信发往核心网关。
     短信字节实际进入统一上行队列（JsonCloudSender），控制台只打印电台
     口径的 [BAOTONG-V2][SEND]（peer=宝通电台地址）。同一时刻只允许一条
     短信在信道上：在途期间新到的数据只更新缓存，随下一轮发送带出。
-    每次发送的信道时延在 delay_s±jitter_s 内随机波动。"""
+    每次发送的信道时延在 delay_s±jitter_s 内随机波动。
+    radio_relay_url 非空时改推专用转发链路（时延/占道语义不变，仅换
+    出口）；推送失败回退统一上行，报文不丢。"""
     with _SW_OVER_5G_LOCK:
         if _SW_OVER_5G_PENDING["armed"]:
             return
@@ -1467,13 +1488,33 @@ def _dispatch_shortwave_over_5g(
                     sms_json,
                 )
             )
-            send_queue.put(
-                {
-                    "json_data": sms_json,
-                    "slice_id": "mmtc",
-                    "queued_at": time.monotonic(),
-                }
-            )
+            delivered = False
+            if radio_relay_url:
+                try:
+                    _post_radio_relay_push(radio_relay_url, {
+                        "link": "shortwave",
+                        "gateway": "edge",
+                        "source": "{}:{}".format(
+                            baotong_server.host, baotong_server.port
+                        ),
+                        "sent_at": str(payload.get("timestamp", "")),
+                        "payload": payload,
+                    })
+                    delivered = True
+                except Exception as exc:
+                    log(
+                        "[BAOTONG-V2][SEND][WARN] dedicated link push failed: "
+                        "{} | fallback unified uplink".format(exc),
+                        level="WARN",
+                    )
+            if not delivered:
+                send_queue.put(
+                    {
+                        "json_data": sms_json,
+                        "slice_id": "mmtc",
+                        "queued_at": time.monotonic(),
+                    }
+                )
             counter["sent"] += 1
         finally:
             with _SW_OVER_5G_LOCK:
@@ -1752,6 +1793,7 @@ def handle_json_client(
                     radio_over_5g["sw_jitter_s"],
                     send_queue,
                     shortwave_over_5g,
+                    radio_over_5g["radio_relay_url"],
                 )
             log(
                 "[JSON][SHORTWAVE] source={} message={} gateway={} selected={}".format(
@@ -3751,6 +3793,7 @@ class SatelliteUplink(threading.Thread):
         link_delay_s=0.0,
         link_jitter_s=0.0,
         ingest_url=None,
+        radio_relay_url="",
     ):
         threading.Thread.__init__(self, daemon=True, name="satellite-uplink")
         self.port = str(port or "").strip()
@@ -3769,6 +3812,9 @@ class SatelliteUplink(threading.Thread):
         self.link_delay_s = float(link_delay_s)
         self.link_jitter_s = float(link_jitter_s)
         self.ingest_url = ingest_url
+        # 专用转发链路（EDGE_RADIO_RELAY_URL）：联调帧改推 radio relay，
+        # 云端短连接拉取；推送失败回退统一入库口，报文不丢。
+        self.radio_relay_url = str(radio_relay_url or "")
         self.serial_module = None
         self.list_ports_module = None
 
@@ -4065,14 +4111,34 @@ class SatelliteUplink(threading.Thread):
                 )
             )
             # 立即落地：帧 timestamp 即送达时刻（无压帧时延）。
-            try:
-                self._post_ingest(raw)
-            except Exception as exc:
-                log(
-                    "[SATELLITE][SEND][WARN] frame_no={} send failed: {} | "
-                    "retry next cycle".format(frame_no, exc),
-                    level="WARN",
-                )
+            # 优先推专用转发链路（联调部署时），失败回退统一入库口。
+            delivered = False
+            if self.radio_relay_url:
+                try:
+                    _post_radio_relay_push(self.radio_relay_url, {
+                        "link": "satellite",
+                        "gateway": self.gateway_id,
+                        "sent_at": payload.get("timestamp", ""),
+                        "payload": payload,
+                    })
+                    delivered = True
+                except Exception as exc:
+                    log(
+                        "[SATELLITE][SEND][WARN] frame_no={} dedicated link "
+                        "push failed: {} | fallback unified ingest".format(
+                            frame_no, exc
+                        ),
+                        level="WARN",
+                    )
+            if not delivered:
+                try:
+                    self._post_ingest(raw)
+                except Exception as exc:
+                    log(
+                        "[SATELLITE][SEND][WARN] frame_no={} send failed: {} | "
+                        "retry next cycle".format(frame_no, exc),
+                        level="WARN",
+                    )
             if self.interval <= 0:
                 log(
                     "[SATELLITE] one-shot send completed; thread remains idle"
@@ -4452,6 +4518,13 @@ def main():
     link_status_host = args.link_status_host or args.cloud_host
     # 2.2.4 联调：短波/卫星直发模式（默认 None=现网行为）。
     radio_over_5g = load_radio_over_5g_config()
+    if radio_over_5g is not None and radio_over_5g["radio_relay_url"]:
+        log(
+            "[MAIN] 短波/卫星专用转发链路已启用: {}（联调帧改推专用链路，"
+            "推送失败自动回退统一上行）".format(
+                radio_over_5g["radio_relay_url"]
+            )
+        )
 
     json_queue = DroppingQueue(args.json_queue)
     media_queue = DroppingQueue(args.media_queue)
@@ -4730,6 +4803,9 @@ def main():
             ),
             ingest_url="http://{}:{}/ingest".format(
                 args.cloud_host, satellite_ingest_port
+            ),
+            radio_relay_url=(
+                radio_over_5g["radio_relay_url"] if radio_over_5g else ""
             ),
         )
         satellite_uplink.start()

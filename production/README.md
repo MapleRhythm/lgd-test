@@ -257,6 +257,34 @@ cd edge
   （默认 1s，0 跳过）回看卫星上行日志；`EDGE_SATELLITE_INTERVAL` 为串口版
   身份帧周期，联调模式不参与节奏（传 0 表示发一条后空闲）。
 
+### 短波/卫星专用转发链路（radio relay，可选·加法部署）
+
+现网业务下发口（11400-11409）是长连接消费模型：消费端过 5G NAT 闲置即被
+静默断连，死连接留在共享队列里抢报文（见 [STEP_BY_STEP.md](STEP_BY_STEP.md)
+坑17）。`relay/` 目录提供**加法**方案：不动 server_v8，在中转服务器上以新
+端口（默认 **19400**）跑伴生转发器，云端用短连接拉取——一来一回即断，
+没有可僵尸化的长连接，且历史可回放（调整前/后用 `--after` 游标增量查询）：
+
+```bash
+# ① 中转服务器（与 server_v8 同机；只加端口，不动现有进程）
+scp -r relay/ <中转机>:~/radio-relay/
+ssh <中转机> "cd ~/radio-relay && nohup ./run_radio_relay.sh >/dev/null 2>&1 &"
+# 记得放行 19400/tcp；验证：curl -s http://127.0.0.1:19400/health
+
+# ② 边缘网关（联调模式额外设一个环境变量即可，时延/节奏口径不变）
+export EDGE_RADIO_RELAY_URL=http://<中转机IP>:19400
+./run_gateway.sh        # 短波/卫星联调帧改推专用链路；推送失败自动回退统一上行
+
+# ③ 云端管理节点查询（大纲 2.2.4/2.2.5 接收记录核对，只读）
+bash cloud/query_radio_records.sh                 # 短波/卫星各一张表（最近 20 条）
+bash cloud/query_radio_records.sh --after <seq>   # 调整后增量记录
+```
+
+说明：链路时延/节奏仍在边缘实现（短波 20±3s 占道、卫星立即落地约 2 分钟
+一条），转发器只忠实转发并记录 `sent_at/received_at`（表中时延列为专用链路
+网络时延，含两端时钟偏差，仅供参考）；不设 `EDGE_RADIO_RELAY_URL` 时一切
+维持既有路径（统一上行 + 11503 卫星入库口）。
+
 ## 端到端验证（生产只读）
 
 ```bash

@@ -354,6 +354,28 @@ ssh root@192.168.4.1 'cd /root/lgd-test/production/edge && cp run_gateway.sh run
 RELAY_HOST=47.99.47.169 bash ~/lgd-test/production/cloud/query_relay_state.sh
 ```
 
+### 短波/卫星接收记录查询(专用转发链路,可选·加法部署)
+
+现网业务下发口(11400-11409)是长连接消费,过 5G NAT 闲置即静默断连,
+死连接留在共享队列抢报文(坑17)。`production/relay/` 是加法方案:中转
+服务器新开 19400 端口跑伴生转发器(server_v8 不动),云端短连接拉取。
+
+```bash
+# ① 云服务器(与 server_v8 同机;只加端口,放行 19400/tcp)
+scp -r production/relay/ <中转机>:~/radio-relay/
+ssh <中转机> "cd ~/radio-relay && nohup ./run_radio_relay.sh >/dev/null 2>&1 &"
+# 验证: ssh <中转机> "curl -s http://127.0.0.1:19400/health"
+
+# ② 边缘板起网关前加一个环境变量(时延/节奏口径不变,失败自动回退统一上行)
+export EDGE_RADIO_RELAY_URL=http://47.99.47.169:19400
+
+# ③ 云侧查询(2.2.4/2.2.5 接收记录;调整前/后用 --after 游标增量)
+RELAY_HOST=47.99.47.169 bash ~/lgd-test/production/cloud/query_radio_records.sh
+```
+
+不设 `EDGE_RADIO_RELAY_URL` 时一切走既有路径(统一上行+11503),该部署
+完全可逆:中转机上 kill 掉 radio-relay 进程即恢复原状。
+
 ### 2.2.4 多源业务接入与可信接入(端侧板)
 
 ```bash

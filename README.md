@@ -65,6 +65,7 @@ start 命令默认**后台持续发送**——终端只显示一行 `[LAUNCH]`�
 | 目录 | 部署到 | 关键动作 |
 |---|---|---|
 | `production/edge/` | 边缘网关真机 | `./run_gateway.sh`（默认连生产中转 47.99.47.169:11500）；`./edge_forward.sh --start` 建立转发 |
+| `production/relay/` | 中转服务器（加法部署） | `./run_radio_relay.sh`（短波/卫星专用转发链路，新端口 19400；server_v8 与既有端口不动） |
 | `production/device/` | 端侧设备真机 | `export EDGE_HOST=<网关IP>` 后 `./run_2_2_3.sh`（大纲全流程） |
 | `production/cloud/` | 任意位置 | `bash query_relay_state.sh`（生产只读验证：11502 白名单 + 11501 设备状态 + 服务器 STAT 对账） |
 | 根目录 | 联调机 | `./run_2_2_3_production.sh`（单机联调，端口与演示错开） |
