@@ -970,13 +970,12 @@ def process_payload(payload: dict, transport: str = "TCP") -> dict:
             ],
         })
 
-    # 大纲顺序里策略路由 2.2.5 第3条才启动：未启动期间不做业务分类，
-    # 已受理报文走默认 5G 上行——与真网关一致（转发门开着即有业务流量
-    # 到云端），2.2.3/2.2.4 的端到端核对不依赖策略路由已启动。
-    if state.get("route_enabled"):
-        proposed = proposed_routes(state, biz_type)
-    else:
-        proposed = ["5g"]
+    # 大纲 2.2.5 条目2 的常态选路表（告警/控制双路 5G+短波、关键传感器经
+    # 卫星）在转发门开启期间始终生效——与真网关一致：网关没有策略路由门
+    # （受理即转发，payload 带 fire/windspeed 即推短波专用链路），策略路由
+    # 启动（条目3）只是大纲流程步骤，5G 断开的降级切换由链路在线状态驱动，
+    # 2.2.3/2.2.4 阶段的短波/卫星接收表因此同样有告警/关键传感器记录。
+    proposed = proposed_routes(state, biz_type)
     actual = [link for link in proposed if link_is_up(state, link)]
     reason = "normal" if not degraded_mode(state) else "5g_below_threshold"
     route_record = {
