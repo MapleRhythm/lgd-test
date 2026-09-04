@@ -528,10 +528,13 @@ def degraded_mode(state: dict) -> bool:
 
 
 def proposed_routes(state: dict, biz_type: str):
-    # 大纲 2.2.5 条目2：视频/图片/传感器经 5G，告警和控制同时经 5G 与
-    # 短波，部分关键传感器经卫星接入模块同步转发；条目3：5G 低于阈值后
-    # 短波改为传输关键传感器数据与告警/控制，卫星传输内容不变（仅承载
-    # 关键传感器），关键业务持续不中断。
+    # 大纲 2.2.5 条目3 引文：5G 正常时视频流/传感器数据经 5G，模拟火情
+    # 告警/控制信息同步经短波工控设备转发，部分关键传感器信息和模拟火情
+    # 告警/控制信息同步经卫星接入模块转发；5G 低于阈值后短波改为传输
+    # 部分关键传感器数据和告警/控制信息，卫星链路传输内容不变（关键
+    # 传感器与告警/控制），切换过程关键业务持续不中断。步骤1-3/判定段
+    # 只按主承载类别描述（告警经短波冗余、关键业务经卫星），未用"仅"，
+    # 与本表一致（0341：需要多链路保障的关键业务可不同链路冗余传输）。
     biz_type = normalize_biz_type(biz_type)
     if degraded_mode(state):
         return {
@@ -540,10 +543,10 @@ def proposed_routes(state: dict, biz_type: str):
             "sensor": [],
             "env": [],
             "critical-sensor": ["shortwave", "satellite"],
-            "fire": ["shortwave"],
-            "control": ["shortwave"],
-            "alarm": ["shortwave"],
-            "control-alarm": ["shortwave"],
+            "fire": ["shortwave", "satellite"],
+            "control": ["shortwave", "satellite"],
+            "alarm": ["shortwave", "satellite"],
+            "control-alarm": ["shortwave", "satellite"],
         }.get(biz_type, ["shortwave"])
     return {
         "video": ["5g"],
@@ -551,10 +554,10 @@ def proposed_routes(state: dict, biz_type: str):
         "sensor": ["5g"],
         "env": ["5g"],
         "critical-sensor": ["satellite"],
-        "fire": ["5g", "shortwave"],
-        "control": ["5g", "shortwave"],
-        "alarm": ["5g", "shortwave"],
-        "control-alarm": ["5g", "shortwave"],
+        "fire": ["5g", "shortwave", "satellite"],
+        "control": ["5g", "shortwave", "satellite"],
+        "alarm": ["5g", "shortwave", "satellite"],
+        "control-alarm": ["5g", "shortwave", "satellite"],
     }.get(biz_type, ["5g"])
 
 
