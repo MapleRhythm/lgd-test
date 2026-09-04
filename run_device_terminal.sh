@@ -7,7 +7,7 @@ set -Eeuo pipefail
 # Wi-Fi）、环境监测（990E261B/轮换）三路业务在同一终端依次输入发送命令即可
 # （可同时运行：各 start 命令是独立进程、独立 TCP 长连接到边缘网关，状态
 # 写入与 msg_id 分配均有跨进程锁）。默认业务身份为环境监测（承载大纲 2.2.3
-# 端侧流程）；视频流附带真实媒体口 7777 与每 10s 火情上报。
+# 端侧流程）；视频流附带真实媒体口 7777 与每 20s 火情上报。
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -47,7 +47,7 @@ BAR='═════════════════════════
 printf '\n\033[36m  %s\033[0m\n' "$BAR"
 printf '\033[1;36m  %s\033[0m\n' '端侧设备终端 · END DEVICE TERMINAL（单终端合并形态）'
 printf '\033[36m  %s\033[0m\n' "$BAR"
-printf '  视频流    : %s  有线（含真实媒体口 %s；每10s附带火情上报）\n' \
+printf '  视频流    : %s  有线（含真实媒体口 %s；每20s附带火情上报）\n' \
   "${PROTOCOL_TEST_DEVICE_VIDEO:-182D48D7}" "$PROTOCOL_TEST_MEDIA_PORT"
 printf '  传感器    : %s  Wi-Fi（名单过滤生效后自动换无关 ID）\n' \
   "${PROTOCOL_TEST_DEVICE_SENSOR:-3C15DB07}"
@@ -67,7 +67,7 @@ printf '    ./start_xxx.sh --fg ...    # 前台直跑（输出进度到终端，
 printf '  停止后台发送：kill [LAUNCH] 行里打印的 pid（--count/--duration 到限自行结束；\n'
 printf '  退出本终端时自动结束本终端启动的后台发送）\n'
 printf '\n'
-printf '  火情（随视频流上报，每10s一条，默认无火情 false）:\n'
+printf '  火情（随视频流上报，每20s一条，默认无火情 false）:\n'
 printf '    ./fire_alarm.sh --on        # 触发火情：后续火情上报载荷变为 true\n'
 printf '    ./fire_alarm.sh --off       # 解除火情：恢复 false\n'
 printf '\n'

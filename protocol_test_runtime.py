@@ -98,8 +98,13 @@ DEMO_DEVICE_IDS = {
     "light": os.getenv("PROTOCOL_TEST_DEVICE_LIGHT", "DEV-001"),
 }
 # 火情上报周期：火情由视频流终端上报（同一设备身份、有线接入），
-# start_video_stream 期间每 10s 附带一条 fire 报文，载荷布尔随 fire_alarm。
-FIRE_REPORT_INTERVAL = 10.0
+# start_video_stream 期间每 20s 附带一条 fire 报文，载荷布尔随 fire_alarm。
+# 20s 即短波链路的发送节奏（告警/控制约 20s 一条，与生产电台口径一致）。
+FIRE_REPORT_INTERVAL = 20.0
+# 关键传感器上报周期：随环境监测终端每 2 分钟一条 critical-sensor——
+# 卫星链路"约 2 分钟一条、连续发送"的节奏来源（正常经卫星同步转发，
+# 5G 降级后短波+卫星双路承载），不是把报文压住 2 分钟再突发。
+CRITICAL_REPORT_INTERVAL = 120.0
 # 服务器白名单内的借用设备（与本地中转分发的名单一致）。固定为这五个 ID：
 # 传感器终端的非法设备身份只用于发送，绝不能混进本地白名单。
 DEFAULT_WHITELIST = ["182D48D7", "3C15DB07", "990E261B", "EA1D2801", "DEV-001"]
@@ -1398,6 +1403,18 @@ def cmd_edge_forward(args) -> int:
     return 0
 
 
+def _record_age_le(record: dict, seconds: float) -> bool:
+    """云端接收记录是否落在最近 seconds 窗口内（按 received_at 判定）。
+
+    无/坏时间戳的记录不隐藏（演示现场宁可多显、不少显）。"""
+    try:
+        received = datetime.fromisoformat(str(record.get("received_at", "")))
+        age = (datetime.now(timezone.utc) - received).total_seconds()
+    except (ValueError, TypeError):
+        return True
+    return age <= seconds
+
+
 def cmd_query_link_data(args) -> int:
     title("END-TO-END LINK DATA")
     sent = read_records("sent.jsonl")
@@ -1421,21 +1438,25 @@ def cmd_query_link_data(args) -> int:
     table(("Uplink", "State"), rows)
     # 大纲 2.2.3 步骤10：查询 5G 信道、短波工控设备及卫星接入模块接收到的
     # 业务数据——与云端日志查询同格式，按上行链路分三张表（表题即接收方，
-    # 对齐大纲措辞）；--limit 作用于每张表（各链路最近 N 条）。
+    # 对齐大纲措辞）；表窗跟随各链路发送节奏：5G 承载秒级业务看最近 10 秒，
+    # 短波约 20s 一条看最近 2 分钟，卫星约 2 分钟一条看最近 10 分钟；
+    # --limit 作用于每张表（窗口内最多取最近 N 条）。
     print("")
     columns = ("Device", "Business", "Message", "Class", "Parse")
-    for index, (label, channel) in enumerate(
-        (("5G 信道", "5g"), ("短波工控设备", "shortwave"), ("卫星接入模块", "satellite"))
+    for index, (label, channel, window_text, window_s) in enumerate(
+        (("5G 信道", "5g", "10 秒", 10.0),
+         ("短波工控设备", "shortwave", "2 分钟", 120.0),
+         ("卫星接入模块", "satellite", "10 分钟", 600.0))
     ):
         channel_rows = [
             (item.get("device_id", ""), item.get("biz_type", ""), item.get("msg_id", ""),
              item.get("classification", ""), item.get("parse_status", ""))
             for item in cloud
-            if str(item.get("link_id", "")) == channel
+            if str(item.get("link_id", "")) == channel and _record_age_le(item, window_s)
         ][-args.limit:]
         if index:
             print()
-        info("{} 接收的业务数据".format(label))
+        info("{} 接收的业务数据（最近 {}）".format(label, window_text))
         table(columns, channel_rows or [("-", "-", "-", "-", "no records")])
     if not cloud_live_enabled():
         accepted_ids = {item.get("msg_id") for item in read_records("auth.jsonl") if item.get("accepted")}
@@ -1579,10 +1600,25 @@ def source_command(args, source_kind: str) -> int:
     fire_results = []
     fire_stop = threading.Event()
     fire_thread = None
+    critical_results = []
+    critical_stop = threading.Event()
+    critical_thread = None
+    if source_kind == "env" and not getattr(args, "no_critical_report", False):
+        # 关键传感器信息随环境监测终端上报（同一设备身份、有线接入）：
+        # 每 2 分钟一条 critical-sensor，正常经卫星接入模块同步转发，
+        # 5G 降级后短波+卫星双路承载（大纲 2.2.5 条目2/3）。
+        def critical_reporter():
+            while not critical_stop.is_set():
+                critical_results.append(emit_message(current_device_id(), "critical-sensor", "wired", transport="TCP"))
+                critical_stop.wait(CRITICAL_REPORT_INTERVAL)
+
+        critical_thread = threading.Thread(target=critical_reporter, name="critical-report", daemon=True)
+        critical_thread.start()
     if source_kind == "video" and not getattr(args, "no_fire_report", False):
-        # 火情由视频流终端上报：随视频流每 10s 一条 fire 报文，载荷布尔
-        # 跟随会话 fire_alarm 标志（无火情 false / 有火情 true，fire-alarm
-        # 命令切换），与视频共用同一设备身份与有线接入链路。
+        # 火情由视频流终端上报：随视频流每 20s 一条 fire 报文（短波链路
+        # 的发送节奏），载荷布尔跟随会话 fire_alarm 标志（无火情 false /
+        # 有火情 true，fire-alarm 命令切换），与视频共用同一设备身份与
+        # 有线接入链路。
         def fire_reporter():
             while not fire_stop.is_set():
                 fire_results.append(emit_message(current_device_id(), "fire", "wired", transport="TCP"))
@@ -1601,6 +1637,9 @@ def source_command(args, source_kind: str) -> int:
         if source_kind == "video" and os.getenv("PROTOCOL_TEST_LIVE_MEDIA", "0") == "1":
             send_live_media(build_payload(device_id, source_kind, link_id))
     count = run_loop(args, producer)
+    if critical_thread is not None:
+        critical_stop.set()
+        critical_thread.join(timeout=CRITICAL_REPORT_INTERVAL + 1.0)
     if fire_thread is not None:
         fire_stop.set()
         fire_thread.join(timeout=FIRE_REPORT_INTERVAL + 1.0)
@@ -1611,9 +1650,12 @@ def source_command(args, source_kind: str) -> int:
     table(("Source", "Device", "Packets", "Accepted", "Forwarded"), [(source_kind, " -> ".join(used_ids), count, sum(1 for r in results if r["accepted"]), sum(len(r.get("forwarded", [])) for r in results))])
     if fire_results:
         fire_true = sum(1 for r in fire_results if (r.get("message") or {}).get("fire") == "true")
-        info("火情上报 {} 条（fire=true {} / fire=false {}）：视频流终端每 {}s 一条，"
+        info("火情上报 {} 条（fire=true {} / fire=false {}）：视频流终端每 {}s 一条（短波链路节奏），"
              "载荷随 ./fire_alarm.sh --on / --off 切换".format(
                  len(fire_results), fire_true, len(fire_results) - fire_true, int(FIRE_REPORT_INTERVAL)))
+    if critical_results:
+        info("关键传感器上报 {} 条：环境监测终端每 {}s 一条，经卫星接入模块同步转发（连续发送）".format(
+            len(critical_results), int(CRITICAL_REPORT_INTERVAL)))
     ok("{} source data generation completed".format(source_kind))
     return 0
 
@@ -2290,8 +2332,12 @@ def build_parser():
         # start-light 为光照强度模拟（DEV-001，sensor 业务），行为相同。
         add_common_loop_options(item, count=None, duration=None, interval=1.0)
         if source_kind == "video":
-            # 视频流终端随流每 10s 上报一条火情；--no-fire-report 仅诊断时关闭。
+            # 视频流终端随流每 20s 上报一条火情；--no-fire-report 仅诊断时关闭。
             item.add_argument("--no-fire-report", dest="no_fire_report", action="store_true")
+        if source_kind == "env":
+            # 环境监测终端每 2 分钟上报一条关键传感器（卫星链路节奏）；
+            # --no-critical-report 仅诊断时关闭。
+            item.add_argument("--no-critical-report", dest="no_critical_report", action="store_true")
         # 与生产包 send_business.py 同步：默认后台发送，父进程一行 [LAUNCH] 即返回。
         item.add_argument("--background", action="store_true",
                           help="后台发送（默认即后台；保留以兼容显式写法）")
@@ -2308,7 +2354,7 @@ def build_parser():
     item.set_defaults(function=cmd_whitelist_add_device)
 
     item = sub.add_parser("fire-alarm")
-    # 火情标志切换：视频流终端每 10s 一条 fire 报文（false=无火情 / true=有火情）。
+    # 火情标志切换：视频流终端每 20s 一条 fire 报文（false=无火情 / true=有火情）。
     item.add_argument("--on", action="store_true")
     item.add_argument("--off", action="store_true")
     item.set_defaults(function=cmd_fire_alarm)

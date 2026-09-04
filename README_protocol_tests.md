@@ -68,8 +68,8 @@ changes node ownership:
                keep_transfer, multi_link_bandwidth   （端侧终端，默认 env 身份）
       cloud:  query_link_data
 
-2.2.4 device: start_video_stream（含每10s火情上报）, start_sensor_data,
-               start_env_data, start_test (illegal device)
+2.2.4 device: start_video_stream（含每20s火情上报）, start_sensor_data,
+               start_env_data（含每2分钟关键传感器上报）, start_test (illegal device)
       edge:   multi_source_access, query_service_log, trust_access_add_whitelist,
                trust_access_calculate, edge-query
       cloud:  query_cloud_log, cloud-query, query_cloud_log, cloud-query
@@ -206,7 +206,7 @@ Use a short duration while checking the workflow, for example
 
 大纲 2.2.4 的三路多源数据来自**同一个端侧终端**（单终端合并形态）：
 `./run_device_terminal.sh` 无需参数，视频流 182D48D7（有线，含真实媒体口
-7777，每10s附带火情上报）/ 传感器 3C15DB07（Wi-Fi，名单过滤生效后自动换
+7777，每20s附带火情上报）/ 传感器 3C15DB07（Wi-Fi，名单过滤生效后自动换
 无关 ID）/ 环境监测 990E261B（Wi-Fi/蓝牙/有线轮换）三路业务在同一终端
 依次输入 start 命令即可（各命令独立进程、独立 TCP 长连接，可同时运行；
 状态写入与 msg_id 分配均有跨进程锁）。
@@ -223,8 +223,9 @@ VID0 帧记 `[MEDIA][RECV][GATE]`；该命令执行后才开始受理。可信�
 并打印后过滤生效，传感器业务发送端逐报文自动切换为无关设备 ID
 （ILLEGAL-SENSOR），被边缘拒收（`whitelist_drop`）并记阻断日志。
 
-火情由**视频流业务**上报：`start_video_stream` 持续发送期间每 10 秒附带一条
-fire 业务报文（同一设备身份、有线接入），载荷为 `"fire": "false"`（无火情）；
+火情由**视频流业务**上报：`start_video_stream` 持续发送期间每 20 秒附带一条
+fire 业务报文（同一设备身份、有线接入；告警/控制即短波链路的节奏，约 20s
+一条），载荷为 `"fire": "false"`（无火情）；
 下列命令只切换火情标志，下一条上报即变为 `"fire": "true"`（有火情）：
 
 ```bash
@@ -257,7 +258,7 @@ fire 业务报文（同一设备身份、有线接入），载荷为 `"fire": "f
 跨机约束同 2.2.3：门命令的标记文件写在执行机本地，`multi_source_access`/
 `trust_access_*` 必须在**边缘机**上执行；端侧板只跑发送类命令。设备板起
 **一个**端侧终端（同一块板；`run_device_terminal.sh` 默认即真发
-`PROTOCOL_TEST_LIVE=1`，视频流业务走真实媒体口 → 边缘 7777，每 10s
+`PROTOCOL_TEST_LIVE=1`，视频流业务走真实媒体口 → 边缘 7777，每 20s
 附带火情上报）：
 
 ```bash
@@ -284,7 +285,7 @@ PROTOCOL_TEST_RELAY_HOST=47.99.47.169 ./run_device_terminal.sh
 ```bash
 ./start_video_stream.sh           # 视频流业务（默认后台持续发送，一行 [LAUNCH] 即回提示符）
 ./start_sensor_data.sh            # 传感器业务（默认后台持续发送；过滤生效后自动变为非法设备）
-./start_env_data.sh               # 环境监测业务（默认后台持续发送）
+./start_env_data.sh               # 环境监测业务（默认后台持续发送；随终端每 2 分钟一条关键传感器上报，经卫星同步转发）
 ./multi_source_access.sh          # 边缘网关终端：此后边缘才开始受理端侧数据
 ./query_service_log.sh            # 边缘网关终端
 ./query_cloud_log.sh --device-type video/sensor/env   # 云端终端（默认按上行链路分 5G/卫星/短波三张表）
@@ -344,7 +345,7 @@ Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）由
 ```bash
 ./cloud-mgr.sh --start
 ./start_uplink_transfer.sh
-./query_link_data.sh
+./query_link_data.sh              # 三张按链路接收表：表窗跟随链路节奏（5G 最近 10 秒 / 短波 2 分钟 / 卫星 10 分钟）
 ./policy-route.sh --start   # 大纲 2.2.5 条目3：策略路由启动
 ./link_block.sh --stop
 ./link-monitor.sh
