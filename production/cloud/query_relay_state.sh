@@ -13,7 +13,7 @@
 # 单开脚本——跟随大纲查询步骤一并打印；未部署/不可达时仅提示一行并跳过。
 # 环境变量：RADIO_RELAY_PORT（默认 11550）、RADIO_AFTER（游标，默认 0 取
 # 全部）、RADIO_LIMIT（每链路条数，默认 20）、RADIO_LINK（shortwave/
-# satellite/all，默认 all）。
+# satellite/all，默认 all）、RADIO_FIRE_COUNT（火情时延观察条数，默认 5）。
 #
 # 大纲 2.2.5 条目1（云端管理节点，生产只读版）同一入口：接收表之后打印
 # 云端解析判类与转发路径——逐条按业务字段判定类别（视频类/传感类/
@@ -21,6 +21,14 @@
 # 载荷带 fire 即告警、windspeed 即关键传感器）；卫星身份帧非业务报文
 # 只计数。5G 上行业务经中转进核心网关，只读通道不回放明细，核对走中转
 # STAT 计数（见文末）。
+#
+# 大纲 2.2.5 观察点（高可靠低时延业务·生产只读版）同一入口：判类统计
+# 之后打印最近 N 条火情帧经短波冗余专线的实测时延（业务时间戳→服务器
+# 接收；sent_at 即短信业务时间戳，边缘在短波占道时延之后才推送，时延含
+# 占道默认 20±3s——冗余兜底链路口径，与演示版 5G 主路 5s 门限不同基准，
+# 不做门限判定。短波短信时间戳为 HH:MM 分钟级（宝通口径），按接收当天
+# 补全粗估、前缀 ~ 标记）；5G 主路低时延转发的业务明细只读通道不回放，
+# 接收核对仍走中转 STAT 计数。
 set -Eeuo pipefail
 
 RELAY_HOST="${RELAY_HOST:-47.99.47.169}"
@@ -31,6 +39,7 @@ RADIO_RELAY_PORT="${RADIO_RELAY_PORT:-11550}"
 RADIO_AFTER="${RADIO_AFTER:-0}"
 RADIO_LIMIT="${RADIO_LIMIT:-20}"
 RADIO_LINK="${RADIO_LINK:-all}"
+RADIO_FIRE_COUNT="${RADIO_FIRE_COUNT:-5}"
 
 echo "=== 生产中转只读状态  $RELAY_HOST ==="
 
@@ -69,11 +78,12 @@ PY
 
 echo
 echo "=== 短波/卫星专用转发链路接收记录（可选·加法部署） ==="
-python3 - "$RELAY_HOST" "$RADIO_RELAY_PORT" "$RADIO_AFTER" "$RADIO_LIMIT" "$RADIO_LINK" <<'PY'
+python3 - "$RELAY_HOST" "$RADIO_RELAY_PORT" "$RADIO_AFTER" "$RADIO_LIMIT" "$RADIO_LINK" "$RADIO_FIRE_COUNT" <<'PY'
 import datetime, json, sys, urllib.request
 
-host, port, after, limit, link = (
-    sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5])
+host, port, after, limit, link, fire_count = (
+    sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5],
+    int(sys.argv[6]))
 if link not in ("shortwave", "satellite", "all"):
     print("[RADIO] RADIO_LINK 仅支持 shortwave/satellite/all")
     sys.exit(0)
@@ -224,6 +234,62 @@ try:
     tail = ("；另有非业务帧 %d 条（卫星身份帧等，链路保持）" % non_business
             if non_business else "")
     print("业务类别接收统计：%s%s" % (summary or "无", tail))
+    print()
+
+    # 大纲 2.2.5 观察点（高可靠低时延业务·生产只读版）：最近 N 条火情帧
+    # 经短波冗余专线的实测时延。sent_at 即短信业务时间戳（组帧时打的，
+    # 边缘在短波占道时延之后才推送），时延含占道——冗余兜底链路口径，
+    # 不做 5s 门限判定。短波短信时间戳为 HH:MM 分钟级（宝通口径），
+    # 按接收当天补全粗估（前缀 ~），不冒充秒级精度。
+    def fire_delay(record):
+        text = str(record.get("sent_at", "")).strip()
+        received = parse_time(record.get("received_at"))
+        if received is None:
+            return "-", None
+        parts = text.split(":")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            hh, mm = int(parts[0]), int(parts[1])
+            if hh < 24 and mm < 60:
+                base = received.replace(hour=hh, minute=mm,
+                                        second=0, microsecond=0)
+                if (base - received).total_seconds() > 1800:
+                    base -= datetime.timedelta(days=1)  # 跨零点回退一天
+                delta = (received - base).total_seconds()
+                if 0 <= delta <= 3600:
+                    return "~%d" % int(delta), delta
+            return "-", None
+        delay = link_delay(record)
+        if delay == "-":
+            return "-", None
+        return delay, float(delay)
+
+    fire_rows = []
+    for _link_name, record in pulled:
+        if classify(record.get("payload") or {})[0] != "fire":
+            continue
+        delay, value = fire_delay(record)
+        fire_rows.append((record["seq"], delay, value,
+                          str(record.get("received_at", ""))[:23]))
+    fire_rows = fire_rows[-fire_count:]
+    print("火情帧时延观察（最近 %d 条：业务时间戳→服务器接收，短波冗余链路）"
+          % len(fire_rows))
+    if fire_rows:
+        print("%-6s %8s  %-24s" % ("Seq", "时延(s)", "Received at"))
+        for seq, delay, _value, received in fire_rows:
+            print("%-6d %8s  %-24s" % (seq, delay, received))
+        numeric = [value for _seq, _delay, value, _received in fire_rows
+                   if value is not None]
+        if numeric:
+            coarse = any(delay.startswith("~")
+                         for _seq, delay, _value, _received in fire_rows)
+            print("统计：平均 %.1fs / 最大 %.1fs（含边缘短波占道时延，默认 20±3s；"
+                  "冗余兜底链路口径%s）"
+                  % (sum(numeric) / len(numeric), max(numeric),
+                     "；短信时间戳 HH:MM 分钟级，~ 值为粗估" if coarse else ""))
+    else:
+        print("  （无火情帧：需端侧 fire 业务在发——send_business.py --biz-type fire）")
+    print("（5G 主路火情低时延转发的业务明细只读通道不回放，接收核对走中转 "
+          "STAT 计数，见文末）")
     print()
 
     print("增量游标: RADIO_AFTER=%d （下次查询只取这之后的新记录）" % max_seq)

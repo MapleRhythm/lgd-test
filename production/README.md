@@ -282,7 +282,7 @@ ssh <中转机> "cd ~/radio-relay && nohup python3 -u radio_link_relay.py >/dev/
 
 # ③ 云端管理节点查询（不单开脚本：接收记录已并入大纲查询步骤的 query_relay_state.sh，
 #    出口 11550，未部署时该节自动跳过；调整前/后增量用 RADIO_AFTER 游标）
-bash cloud/query_relay_state.sh                        # 白名单/设备状态 + 短波/卫星接收表 + 解析判类与转发路径
+bash cloud/query_relay_state.sh                        # 白名单/设备状态 + 短波/卫星接收表 + 解析判类与转发路径 + 火情帧时延观察
 RADIO_AFTER=<seq> bash cloud/query_relay_state.sh      # 调整后增量记录
 ```
 
@@ -300,7 +300,12 @@ bash cloud/query_relay_state.sh        # RELAY_HOST 默认 47.99.47.169
 输出：白名单实时内容与借用设备在册校验、云端设备状态（11501）、
 短波/卫星接收表与**云端解析判类与转发路径**（2.2.5 条目1 生产只读版：
 逐条按业务字段判定 视频类/传感类/控制告警类 并对应处理入口，与演示版
-`cloud-mgr --start` 两张表同口径）、以及中转服务器上的 STAT 对账指令。
+`cloud-mgr --start` 两张表同口径）、**火情帧时延观察**（2.2.5 观察点
+生产只读版：最近 N 条 fire 短信 业务时间戳→服务器接收 的实测时延，
+`RADIO_FIRE_COUNT` 调条数默认 5；短信时间戳为 HH:MM 分钟级（宝通口径），
+按接收当天补全粗估并以前缀 ~ 标记，时延含边缘短波占道 20±3s——冗余
+兜底链路口径，不做 5s 门限判定；5G 主路火情低时延转发的业务明细只读
+通道不回放，接收核对走 STAT 计数）、以及中转服务器上的 STAT 对账指令。
 中转 `10008+` 不对外，live 端到端核对（演示版 query_link_data 末尾的实时
 msg_id 核对）在生产包中没有对应物，以中转日志 STAT 计数为准。
 
