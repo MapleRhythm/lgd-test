@@ -247,15 +247,15 @@ cd edge
   （默认 20±3s，逐条随机波动）的信道时延发一条最新业务短信（同一时刻仅一条
   在信道上，新数据随下一轮带出）；控制台打印与现网一致的
   `[BAOTONG-V2][SEND] peer=<电台地址>`，计数进周期统计行 `shortwave=`。
-- **卫星**：无串口依赖，网关周期入队身份报文（`[SATELLITE][SEND][QUEUED]`），
-  经 `EDGE_SAT_DELAY_S`±`EDGE_SAT_JITTER_S`（默认 120±10s，逐帧随机波动）
-  星上时延后送达云端卫星接收页面
-  （核心侧卫星页面可见；报文 timestamp 与落地时刻之差即星上时延）。
+- **卫星**：无串口依赖，网关入队身份报文（`[SATELLITE][SEND][QUEUED]`）
+  后**立即**送达云端卫星接收页面（核心侧卫星页面可见，无压帧时延），
+  随后按 `EDGE_SAT_DELAY_S`±`EDGE_SAT_JITTER_S`（默认 120±10s，逐帧
+  随机波动）的节奏发下一条——约 2 分钟一条、连续发送（与演示版同口径）。
 - 默认**开启**：`EDGE_RADIO_OVER_5G` 未设置即为 1；真机接宝通电台与
   400-GM12 串口时显式设 `EDGE_RADIO_OVER_5G=0` 恢复主站轮询与串口。
-  单机联调 `run_2_2_4_production.sh` 自动启用
-  （卫星周期 `EDGE_SATELLITE_INTERVAL` 默认 150s），并在末尾等待首帧卫星
-  落地后再收尾（`SAT_LAND_WAIT=0` 跳过等待）。
+  单机联调 `run_2_2_4_production.sh` 自动启用，末尾固定等 `SAT_LAND_WAIT`
+  （默认 1s，0 跳过）回看卫星上行日志；`EDGE_SATELLITE_INTERVAL` 为串口版
+  身份帧周期，联调模式不参与节奏（传 0 表示发一条后空闲）。
 
 ## 端到端验证（生产只读）
 
@@ -283,11 +283,14 @@ live 端到端核对（演示版 query_link_data 末尾的实时 msg_id 核对�
 将发往生产中转**（借用白名单设备 ID）——`RELAY_HOST` 可指向测试中转。
 2.2.3 的 `KEEP_DURATION` 默认 60（大纲值 600，联调可调）；2.2.4 的轮次时长
 `SOURCE_DURATION`（开闸前，默认 5）/ `POST_DURATION`（开闸后，默认 12，
-火情两条可见 10s 节奏）/ `ILLEGAL_COUNT`（默认 5）同理可调；2.2.4 直发
-模式的时延 `EDGE_SW_DELAY_S`（短波，默认 20）/ `EDGE_SAT_DELAY_S`
-（卫星，默认 120）与抖动 `EDGE_SW_JITTER_S`（默认 3）/ `EDGE_SAT_JITTER_S`
-（默认 10，实际时延逐报文在基准±抖动内随机波动）以及末尾落地等待
-`SAT_LAND_WAIT`（默认 1，0 跳过）亦可覆盖。
+火情两条可见 20s 节奏）/ `ILLEGAL_COUNT`（默认 5）同理可调；2.2.4 直发
+模式的短波时延 `EDGE_SW_DELAY_S`（默认 20，逐报文在基准±抖动
+`EDGE_SW_JITTER_S` 内随机波动）；卫星为发送节奏 `EDGE_SAT_DELAY_S`/
+`EDGE_SAT_JITTER_S`（默认 120±10，即约 2 分钟一条）：帧立即落地、连续
+发送，一条落地后按该节奏发下一条（与演示版同口径，不是压帧 2 分钟的
+时延）；末尾回看等待 `SAT_LAND_WAIT`（默认 1s，0 跳过）亦可覆盖。
+`EDGE_SATELLITE_INTERVAL` 为串口版身份帧周期，联调模式不参与节奏
+（传 0 表示发一条后空闲）。
 
 ## 与演示版（final/ 根目录）的差异
 

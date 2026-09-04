@@ -17,9 +17,11 @@
 # 2.2.4 直发模式（EDGE_RADIO_OVER_5G=1；run_gateway.sh 默认已启用，此处
 # 显式写出便于识别；真机恢复硬件通道设 0）：
 # 短波/卫星报文不经电台/卫星模块，复用统一上行通道直发核心网关——短波
-# 时延 EDGE_SW_DELAY_S（默认 20s）、卫星时延 EDGE_SAT_DELAY_S（默认 120s），
-# 实际时延在 ±EDGE_SW_JITTER_S（默认 3s）/ ±EDGE_SAT_JITTER_S（默认 10s）
-# 内每报文随机波动（模拟信道传播起伏）；网关控制台仍按电台/卫星口径打印
+# 时延 EDGE_SW_DELAY_S（默认 20s）；卫星为发送节奏 EDGE_SAT_DELAY_S（默认
+# 120s）：帧立即落地，一条落地后按基准±抖动发下一条（约 2 分钟一条、连续
+# 发送），短波时延在 ±EDGE_SW_JITTER_S（默认 3s）/ 卫星节奏在
+# ±EDGE_SAT_JITTER_S（默认 10s）内逐条随机波动（模拟信道传播起伏）；
+# 网关控制台仍按电台/卫星口径打印
 # （[BAOTONG-V2][SEND] / [SATELLITE][*]），不体现实际承载。
 set -Eeuo pipefail
 
@@ -40,8 +42,10 @@ SOURCE_DURATION="${SOURCE_DURATION:-5}"
 POST_DURATION="${POST_DURATION:-12}"
 FIRE_INTERVAL="${FIRE_INTERVAL:-10}"
 ILLEGAL_COUNT="${ILLEGAL_COUNT:-5}"
-# 直发模式时延参数（秒）：短波/卫星信道时延（基准±抖动，逐报文随机波动）
-# 与卫星发送周期、落地等待开关。
+# 直发模式链路参数（秒）：短波为发送时延（基准±抖动，逐报文随机波动）；
+# 卫星为发送节奏（一条立即落地后等基准±抖动再发下一条，约 2 分钟一条）。
+# 卫星串口版身份帧周期（EDGE_SATELLITE_INTERVAL，联调模式不参与节奏，
+# 传 0 表示发一条后空闲）与回看等待秒数。
 SW_DELAY_S="${EDGE_SW_DELAY_S:-20}"
 SW_JITTER_S="${EDGE_SW_JITTER_S:-3}"
 SAT_DELAY_S="${EDGE_SAT_DELAY_S:-120}"
@@ -125,7 +129,7 @@ for p in "$EDGE_JSON_PORT" "$EDGE_MEDIA_PORT" "$EDGE_BAOTONG_PORT"; do
 done
 echo "接入端口 $EDGE_JSON_PORT/$EDGE_MEDIA_PORT 空闲；中转目标 $RELAY_HOST:11500"
 echo "三终端设备 ID：视频 $DEVICE_VIDEO（有线）/ 传感器 $DEVICE_SENSOR（Wi-Fi）/ 环境监测 $DEVICE_ENV（轮换）"
-echo "直发模式：短波时延 ${SW_DELAY_S}±${SW_JITTER_S}s / 卫星时延 ${SAT_DELAY_S}±${SAT_JITTER_S}s（逐报文随机波动；卫星落地等待 SAT_LAND_WAIT=${SAT_LAND_WAIT}）"
+echo "直发模式：短波时延 ${SW_DELAY_S}±${SW_JITTER_S}s / 卫星节奏 ${SAT_DELAY_S}±${SAT_JITTER_S}s 一条（立即落地、连续发送；回看等待 SAT_LAND_WAIT=${SAT_LAND_WAIT}s）"
 
 section '1  启动边缘网关（生产参数，默认不受理、不转发）'
 mkdir -p "$STATE_DIR"
@@ -142,7 +146,6 @@ EDGE_SAT_DELAY_S="$SAT_DELAY_S" EDGE_SAT_JITTER_S="$SAT_JITTER_S" \
 EDGE_SATELLITE_INTERVAL="$SAT_INTERVAL" \
 bash "$PROD_DIR/edge/run_gateway.sh" >"$STATE_DIR/gateway.log" 2>&1 &
 GW_PID=$!
-GW_START="$(date +%s)"
 echo "gateway pid=$GW_PID  log=$STATE_DIR/gateway.log"
 
 for i in $(seq 1 20); do
@@ -218,20 +221,14 @@ grep -F '[WHITELIST][BLOCK]' "$STATE_DIR/gateway.log" | tail -n 5 || true
 section '10  可信接入统计（trust_access_calculate）'
 EDGE_LOG="$STATE_DIR/gateway.log" bash "$PROD_DIR/edge/trust_access_calculate.sh"
 
-section '11  卫星报文落地等待（星上时延演示）'
-# 卫星上行带星上时延 SAT_DELAY_S（默认 120s，逐帧在 ±SAT_JITTER_S 内随机
-# 波动）：网关启动即入队的第一帧在该时延后送达核心卫星接收页面。等到
-# 落地时刻（时延+抖动上限，另加 5s 余量）再回看网关的卫星/短波上行日志；
-# SAT_LAND_WAIT=0 可跳过等待。
+section '11  卫星上行回看（立即落地，节奏约 2 分钟一条）'
+# 卫星上行无压帧时延：帧入队即送达云端卫星接收口，随后按
+# SAT_DELAY_S±SAT_JITTER_S（默认约 2 分钟）的节奏发下一条（连续发送）。
+# 这里只固定等 SAT_LAND_WAIT 秒（默认 1，0 跳过）让 HTTP 往返与日志落盘，
+# 再回看网关的卫星/短波上行日志。
 if [[ "$SAT_LAND_WAIT" != "0" ]]; then
-  remaining="$(python3 - "$GW_START" "$SAT_DELAY_S" "$SAT_JITTER_S" <<'PY'
-import sys, time
-start, delay, jitter = (float(a) for a in sys.argv[1:4])
-print("{:.0f}".format(max(0.0, delay + abs(jitter) + 5.0 - (time.time() - start))))
-PY
-)"
-  echo "卫星星上时延 ${SAT_DELAY_S}±${SAT_JITTER_S}s：等待 ${remaining}s 至首帧落地时刻"
-  sleep "$remaining"
+  echo "卫星立即落地、约 ${SAT_DELAY_S}±${SAT_JITTER_S}s 一条：固定等待 ${SAT_LAND_WAIT}s 后回看日志"
+  sleep "$SAT_LAND_WAIT"
 fi
 echo '网关卫星上行日志（最近12条）：'
 grep -E '\[SATELLITE\]' "$STATE_DIR/gateway.log" | tail -n 12 || true

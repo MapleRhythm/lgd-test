@@ -282,5 +282,5 @@ EDGE_LOG=../edge/gateway.log ../edge/trust_access_calculate.sh
 | 步骤 6 | 8 可信接入·白名单拉取并生效 |
 | 步骤 7 | 9 名单外设备发送 |
 | 步骤 8 | 10 可信接入统计 |
-| 卫星时延演示（可选） | 11 卫星报文落地等待（网关启动约 EDGE_SAT_DELAY_S 秒后首帧落地） |
+| 卫星上行回看（可选） | 11 卫星上行日志回看（帧立即落地，约 EDGE_SAT_DELAY_S±JITTER 一条、连续发送） |
 | 收尾 | EXIT trap 自动执行 |

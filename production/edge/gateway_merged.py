@@ -3763,6 +3763,8 @@ class SatelliteUplink(threading.Thread):
         self.query_queue = bool(query_queue)
         # 2.2.4 联调（EDGE_RADIO_OVER_5G）：无串口，报文经统一上行送到云端
         # 卫星接收口（HTTP 入库）；控制台输出与串口版完全一致。
+        # link_delay_s±link_jitter_s 为联调发送节奏（一条落地后等多久发
+        # 下一条，卫星约 2 分钟一条），不是压帧时延。
         self.over_5g = bool(over_5g)
         self.link_delay_s = float(link_delay_s)
         self.link_jitter_s = float(link_jitter_s)
@@ -4020,9 +4022,12 @@ class SatelliteUplink(threading.Thread):
             response.read()
 
     def _run_over_5g(self):
-        """联调模式卫星上行：不走串口/AT 指令，帧入队日志与串口版一致，
-        报文经星上传播时延（link_delay_s）后由统一上行送达云端卫星接收口。
-        时延体现在报文 timestamp 与送达时刻之差上。"""
+        """联调模式卫星上行：不走串口/AT 指令，帧入队日志与串口版一致。
+        联调节奏（与演示版同口径）：帧造出后立即送达云端卫星接收口，随后
+        按 link_delay_s±link_jitter_s（默认约 2 分钟）的节奏发下一条——
+        卫星链路约 2 分钟一条、连续发送，不是把每帧压住 2 分钟再落地的
+        时延口径。串口版身份帧周期（--satellite-interval，默认 300s）在
+        联调模式不参与节奏；传 0 仍表示发一条后空闲（诊断用）。"""
         log(
             "[SATELLITE][MAIN] uplink started configured_port={} baud={} "
             "gateway={} interval={}s data_type={} query_queue={}".format(
@@ -4059,13 +4064,7 @@ class SatelliteUplink(threading.Thread):
                     self.gateway_id, frame_no, len(raw), payload["timestamp"]
                 )
             )
-            # 星上传播时延：帧入队后延迟落地，每帧在 link_delay_s±link_jitter_s
-            # 内随机波动。
-            delay_s = _jittered_delay(self.link_delay_s, self.link_jitter_s)
-            detail_log(
-                "[SATELLITE] link delay {:.2f}s this frame".format(delay_s)
-            )
-            time.sleep(delay_s)
+            # 立即落地：帧 timestamp 即送达时刻（无压帧时延）。
             try:
                 self._post_ingest(raw)
             except Exception as exc:
@@ -4080,9 +4079,11 @@ class SatelliteUplink(threading.Thread):
                 )
                 while True:
                     time.sleep(3600)
-            wait_seconds = max(0.0, self.interval - delay_s)
-            log("[SATELLITE] next send in {:.0f}s".format(wait_seconds))
-            time.sleep(wait_seconds)
+            # 发送节奏：一条落地后等待 link_delay_s±link_jitter_s 再发下一条
+            # （卫星约 2 分钟一条、连续发送）。
+            pace_s = _jittered_delay(self.link_delay_s, self.link_jitter_s)
+            log("[SATELLITE] next send in {:.0f}s".format(pace_s))
+            time.sleep(pace_s)
 
     def run(self):
         if self.over_5g:
