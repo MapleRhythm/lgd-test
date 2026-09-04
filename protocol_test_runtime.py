@@ -632,6 +632,24 @@ def channel_for(biz_type: str) -> str:
     return "normal"
 
 
+# 大纲 2.2.5 cloud-mgr 步骤：解析统一消息头（device_id|biz_type|msg_id|
+# link_id|timestamp），依据 biz_type 判定业务类别并转发至对应处理入口。
+CLOUD_BIZ_CLASSES = (
+    ("视频类", ("video", "image"), "视频处理入口"),
+    ("传感类", ("sensor", "env", "critical-sensor"), "传感数据处理入口"),
+    ("控制/告警类", ("fire", "control", "alarm", "control-alarm"), "控制/告警处理入口"),
+)
+
+
+def business_class(biz_type: str):
+    """统一消息头的 biz_type -> 大纲业务类别与处理入口（判类依据）。"""
+    biz = normalize_biz_type(biz_type)
+    for label, members, entry in CLOUD_BIZ_CLASSES:
+        if biz in members:
+            return label, entry
+    return "传感类", "传感数据处理入口"
+
+
 def live_enabled() -> bool:
     return os.getenv("PROTOCOL_TEST_LIVE", "0").strip().lower() in {"1", "true", "yes"}
 
@@ -2348,17 +2366,44 @@ def cmd_cloud_manager(args) -> int:
     mutate_state(lambda state: state.update(cloud_manager_enabled=args.action == "start"))
     log_control("cloud_manager_" + args.action)
     title("CLOUD MANAGEMENT")
-    if args.action == "start":
-        ok("cloud receive, parse, classify and query services are RUNNING")
-        if cloud_live_enabled():
-            states = live_cloud_channels_state()
-            reachable = sum(1 for entry in states if entry["reachable"])
-            if reachable:
-                ok("live core gateway endpoints reachable on {}/{} uplink channels".format(reachable, len(states)))
-            else:
-                warn("live core gateway endpoints unreachable; start the cloud terminal first")
-    else:
+    if args.action != "start":
         warn("cloud management is STOPPED")
+        return 0
+    ok("cloud receive, parse, classify and query services are RUNNING")
+    # 大纲 2.2.5：接收边缘网关经上行链路转发的业务消息，调用解析模块对
+    # 统一消息头（device_id|biz_type|msg_id|link_id|timestamp）进行解析，
+    # 依据 biz_type 判定业务类别（视频类/传感类/控制告警类），并按业务
+    # 类型转发至对应处理入口——下面两张表即解析结果与转发路径（只列已
+    # 到达核心的记录：服务器压制中的卫星帧尚未接收）。
+    cloud = [item for item in read_records("cloud.jsonl")
+             if item.get("stage") == "parsed_classified" and _record_arrived(item)]
+    rows = []
+    counts = {label: 0 for label, _members, _entry in CLOUD_BIZ_CLASSES}
+    for item in cloud:
+        label, _entry = business_class(normalize_biz_type(item.get("biz_type", "")))
+        counts[label] = counts.get(label, 0) + 1
+    for item in cloud[-args.limit:]:
+        biz = normalize_biz_type(item.get("biz_type", ""))
+        label, entry = business_class(biz)
+        link = str(item.get("link_id", "") or "-")
+        rows.append((item.get("msg_id", ""), item.get("device_id", ""), biz, label,
+                     LINK_LABELS.get(link, link), entry))
+    print()
+    info("统一消息头解析与转发路径（按 biz_type 判类；最近 {} 条已到达记录，多链路冗余各记一行）".format(args.limit))
+    table(("消息", "设备", "biz_type", "判定类别", "上行链路", "处理入口"),
+          rows or [("-", "-", "-", "-", "-", "no records")])
+    print()
+    info("业务类别转发统计（本会话已到达）")
+    table(("业务类别", "biz_type 判定值", "处理入口", "接收条数"),
+          [(label, "/".join(members), entry, counts.get(label, 0))
+           for label, members, entry in CLOUD_BIZ_CLASSES])
+    if cloud_live_enabled():
+        states = live_cloud_channels_state()
+        reachable = sum(1 for entry in states if entry["reachable"])
+        if reachable:
+            ok("live core gateway endpoints reachable on {}/{} uplink channels".format(reachable, len(states)))
+        else:
+            warn("live core gateway endpoints unreachable; start the cloud terminal first")
     return 0
 
 
@@ -2561,6 +2606,8 @@ def build_parser():
     item.add_argument("action", choices=("start", "stop"), default="start", nargs="?")
     item.add_argument("--start", dest="start_flag", action="store_true")
     item.add_argument("--stop", dest="stop_flag", action="store_true")
+    item.add_argument("--limit", type=int, default=12,
+                      help="解析与转发路径表显示的最近记录条数")
     item.set_defaults(function=cmd_cloud_manager)
     return parser
 

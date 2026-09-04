@@ -349,7 +349,7 @@ Mode/Decision 单元格（normal/degraded、AVAILABLE/BELOW THRESHOLD）由
 （NO_COLOR 或管道输出时自动关闭）。
 
 ```bash
-./cloud-mgr.sh --start
+./cloud-mgr.sh --start           # 解析结果与转发路径表：统一消息头逐条 biz_type 判类（视频类/传感类/控制告警类）→ 上行链路 → 处理入口，另附按类接收统计；只列已到达核心的记录（服务器压制中的卫星帧不显示），--limit 调条数（默认 12）
 ./start_uplink_transfer.sh
 ./query_link_data.sh              # 三张按链路接收表：表窗跟随链路节奏（5G 最近 10 秒 / 短波 2 分钟 / 卫星 10 分钟；卫星约 2 分钟承载一条、服务器压约 2 分钟后到核心，行滞后约 2 分钟出现）
 ./policy-route.sh --start   # 大纲 2.2.5 条目3：策略路由启动
