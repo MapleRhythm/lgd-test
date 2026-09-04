@@ -194,6 +194,22 @@ for key in ("multi_source_enabled", "whitelist_filter_enabled"):
     if state.get(key):
         state[key] = False
         changed = True
+# 上行链路与流程标志同样随新会话回基线（转发门标记已在上面删除，模型侧
+# forwarder/上行 online 一起回“转发通道未建立”——上行由 2.2.3 步骤6
+# edge_forward --start 拉起；route/encap 为模型侧标志，随台账清零回到
+# 全新会话口径）。不复位的话，上一会话残留（例如 link_block --stop 后
+# 的模型 5G 状态）会与本会话的服务器/网关实况各说各话。
+for key in ("route_enabled", "forwarder_enabled", "encapsulation_enabled"):
+    if state.get(key):
+        state[key] = False
+        changed = True
+links = state.get("links")
+if isinstance(links, dict):
+    for name in ("5g", "shortwave", "satellite"):
+        node = links.get(name)
+        if isinstance(node, dict) and node.get("online"):
+            node["online"] = False
+            changed = True
 if changed:
     # tmp + os.replace 原子替换（与运行时 save_state 同法）：杜绝
     # open("w") 先截断、写一半被打断留下 0 字节 state.json。
@@ -210,6 +226,24 @@ fi
 PROTOCOL_TEST_STATE_DIR="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}" \
   python3 -c 'import protocol_test_runtime as rt; rt.clear_records(); (rt.STATE_DIR / "cloud_rx_live.jsonl").unlink(missing_ok=True)'
 printf '  OK   ledger files cleared (fresh demo session)\n'
+
+# 服务器层同样回新会话基线：本地中转进程常驻、不随终端退出，上一会话
+# link_block --stop 下发的组屏蔽（group_enabled=False）会一直粘着——面板
+# 持续 5G DOWN 而边缘/云端终端重启无从复位。本启动器新起的中转默认全组
+# 启用；只有复用已在跑的中转时补一发幂等 /recover（模型层 5G 已随上面
+# 回基线，两层同步）。仅本地中转且演示云端指向本机时执行——远端中转是
+# 生产环境（只读），云端指向别处（旁路台架）时也绝不触碰。
+if [[ ( "$RELAY_HOST" == "127.0.0.1" || "$RELAY_HOST" == "localhost" ) && -z "$RELAY_PID" ]] \
+   && [[ "${EDGE_CLOUD_HOST:-127.0.0.1}" == "127.0.0.1" || "${EDGE_CLOUD_HOST:-127.0.0.1}" == "localhost" ]]; then
+  if PROTOCOL_TEST_RELAY_HOST="$RELAY_HOST" \
+     PROTOCOL_TEST_STATE_DIR="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}" \
+     python3 -c 'import sys, protocol_test_runtime as rt; sys.exit(0 if rt._relay_group_control(True) else 1)' \
+     >/dev/null 2>&1; then
+    printf '  OK   server 5G group re-enabled (stale block from a previous session cleared)\n'
+  else
+    printf '  WARN server 5G group recover not delivered (control API unreachable)\n' >&2
+  fi
+fi
 
 # 显示层把 gateway_1/2/4(5) 之类的通道标识统一映射为 scene_1/2/3
 #（仅控制台显示；协议字段与发往中转的报文不变）。
