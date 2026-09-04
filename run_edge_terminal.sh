@@ -30,6 +30,8 @@ fi
 
 EDGE_PID=""
 RELAY_PID=""
+RADIO_PID=""
+RADIO_RELAY_OK=0
 
 port_open() {
   python3 - "$1" <<'PY'
@@ -77,6 +79,42 @@ ensure_transfer_service() {
   return 1
 }
 
+# 短波/卫星专用转发链路（radio relay）与中转同机部署（生产口径）：本地
+# 演示由本终端随本地中转一起拉起同一份 production/relay/radio_link_relay.py
+# （入口 127.0.0.1:11450 / 出口 127.0.0.1:11550），状态台账放演示状态目录
+# 并随新会话重置——与模型台账同一“每次重跑自动清零”口径。远端中转模式
+# 下不在本地拉起（远端自带，EDGE_RADIO_RELAY_URL 默认跟随中转机）。
+# 联调帧推专用链路不经统一上行，服务器 /stop1 类业务屏蔽指令天然影响
+# 不到这条通路（与生产一致）。
+ensure_radio_relay() {
+  if [[ "$RELAY_HOST" != "127.0.0.1" ]]; then
+    return 0
+  fi
+  if port_open 11450; then
+    return 0
+  fi
+  local state_dir="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}"
+  local relay_state="$state_dir/radio-relay"
+  mkdir -p "$state_dir"
+  rm -rf "$relay_state"
+  python3 -u "$SCRIPT_DIR/production/relay/radio_link_relay.py" \
+    --ingress-host 127.0.0.1 --ingress-port 11450 \
+    --egress-host 127.0.0.1 --egress-port 11550 \
+    --state-dir "$relay_state" \
+    >>"$state_dir/radio_relay.log" 2>&1 &
+  RADIO_PID=$!
+  local attempt
+  for attempt in $(seq 1 20); do
+    if port_open 11450; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  printf '  background radio relay failed to start (see %s); fallback to unified uplink\n' \
+    "$state_dir/radio_relay.log" >&2
+  return 1
+}
+
 cleanup() {
   if [[ -n "$EDGE_PID" ]]; then
     kill "$EDGE_PID" 2>/dev/null || true
@@ -85,6 +123,10 @@ cleanup() {
   if [[ -n "$RELAY_PID" ]]; then
     kill "$RELAY_PID" 2>/dev/null || true
     wait "$RELAY_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$RADIO_PID" ]]; then
+    kill "$RADIO_PID" 2>/dev/null || true
+    wait "$RADIO_PID" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM
@@ -95,6 +137,31 @@ printf '\033[1;36m  %s\033[0m\n' 'EDGE GATEWAY TERMINAL'
 printf '\033[36m  %s\033[0m\n' "$BAR"
 
 ensure_transfer_service
+# 本地中转就位后随即拉起专用转发链路；失败不阻断演示（网关自动回退
+# 统一上行，仅打印 WARN）。
+ensure_radio_relay && RADIO_RELAY_OK=1
+
+# 与生产 run_gateway.sh 同款默认（生产侧对齐）：
+# - 短波/卫星承载走 5G（EDGE_RADIO_OVER_5G=0 恢复电台/串口硬件口径）；
+# - 联调帧优先推专用转发链路入口 11450，失败自动回退统一上行/11503；
+#   默认跟随中转机（EDGE_CLOUD_HOST 覆盖时跟随），置空 EDGE_RADIO_RELAY_URL=
+#   可恢复不经专用链路。
+export EDGE_RADIO_OVER_5G="${EDGE_RADIO_OVER_5G:-1}"
+DEMO_RADIO_RELAY_URL="http://${EDGE_CLOUD_HOST:-$RELAY_HOST}:11450"
+export EDGE_RADIO_RELAY_URL="${EDGE_RADIO_RELAY_URL-$DEMO_RADIO_RELAY_URL}"
+if [[ "$EDGE_RADIO_RELAY_URL" == "$DEMO_RADIO_RELAY_URL" && "$RELAY_HOST" == "127.0.0.1" \
+      && "$RADIO_RELAY_OK" != "1" ]]; then
+  # 默认指向本地入口但本地 relay 没起来：置空回到不经专用链路的旧路径，
+  # 免得网关每帧 WARN。用户显式设置的 URL 不动。
+  export EDGE_RADIO_RELAY_URL=
+fi
+
+# 卫星上行：联调承载（EDGE_RADIO_OVER_5G=1，默认）下默认启用——身份帧按
+# 约 2 分钟一条的节奏即时落专用转发链路（与生产一致）；恢复硬件承载口径
+# 时演示机无 400-GM12 串口，维持禁用。EDGE_DISABLE_SATELLITE=1 可显式关闭。
+if [[ -z "${EDGE_DISABLE_SATELLITE:-}" && "${EDGE_RADIO_OVER_5G:-1}" != "1" ]]; then
+  EDGE_DISABLE_SATELLITE=1
+fi
 
 # 大纲 2.2.3 步骤6：转发通道初始关闭，由 ./edge_forward.sh --start 建立。
 FORWARD_MARKER="${PROTOCOL_TEST_STATE_DIR:-$SCRIPT_DIR/.protocol-test}/edge_forward.enabled"
@@ -146,25 +213,30 @@ printf '  OK   ledger files cleared (fresh demo session)\n'
 
 # 显示层把 gateway_1/2/4(5) 之类的通道标识统一映射为 scene_1/2/3
 #（仅控制台显示；协议字段与发往中转的报文不变）。
-./edge_node.sh \
-  --media-listen-host "${EDGE_MEDIA_HOST:-127.0.0.1}" \
-  --media-listen-port "${EDGE_MEDIA_PORT:-7777}" \
-  --json-listen-host "${EDGE_JSON_HOST:-127.0.0.1}" \
-  --json-listen-port "${EDGE_JSON_PORT:-8888}" \
-  --cloud-host "${EDGE_CLOUD_HOST:-$RELAY_HOST}" \
-  --cloud-port "${EDGE_CLOUD_PORT:-11500}" \
-  --link-status-host "${EDGE_LINK_STATUS_HOST:-$RELAY_HOST}" \
-  --link-status-port "${EDGE_LINK_STATUS_PORT:-11417}" \
-  --edge-heartbeat-port "${EDGE_HEARTBEAT_PORT:-11511}" \
-  --slice-metrics-port "${EDGE_SLICE_METRICS_PORT:-11510}" \
-  --baotong-host "${EDGE_BAOTONG_HOST:-127.0.0.1}" \
-  --baotong-port "${EDGE_BAOTONG_PORT:-19100}" \
-  --disable-satellite \
-  --time-set-interval 0 \
-  --whitelist-interval "${EDGE_WHITELIST_INTERVAL:-30}" \
-  --whitelist-filter \
-  --link-monitor-interval "${EDGE_LINK_MONITOR_INTERVAL:-60}" \
-  --compact-log > >(grep --line-buffered -vE '\[WHITELIST\]|\[EDGE-HEARTBEAT\]|\[JSON\]\[SHORTWAVE\]' \
+GATEWAY_ARGS=(
+  --media-listen-host "${EDGE_MEDIA_HOST:-127.0.0.1}"
+  --media-listen-port "${EDGE_MEDIA_PORT:-7777}"
+  --json-listen-host "${EDGE_JSON_HOST:-127.0.0.1}"
+  --json-listen-port "${EDGE_JSON_PORT:-8888}"
+  --cloud-host "${EDGE_CLOUD_HOST:-$RELAY_HOST}"
+  --cloud-port "${EDGE_CLOUD_PORT:-11500}"
+  --link-status-host "${EDGE_LINK_STATUS_HOST:-$RELAY_HOST}"
+  --link-status-port "${EDGE_LINK_STATUS_PORT:-11417}"
+  --edge-heartbeat-port "${EDGE_HEARTBEAT_PORT:-11511}"
+  --slice-metrics-port "${EDGE_SLICE_METRICS_PORT:-11510}"
+  --baotong-host "${EDGE_BAOTONG_HOST:-127.0.0.1}"
+  --baotong-port "${EDGE_BAOTONG_PORT:-19100}"
+  --time-set-interval 0
+  --whitelist-interval "${EDGE_WHITELIST_INTERVAL:-30}"
+  --whitelist-filter
+  --link-monitor-interval "${EDGE_LINK_MONITOR_INTERVAL:-60}"
+  --compact-log
+)
+if [[ "${EDGE_DISABLE_SATELLITE:-0}" == "1" ]]; then
+  GATEWAY_ARGS+=(--disable-satellite)
+fi
+./edge_node.sh "${GATEWAY_ARGS[@]}" \
+  > >(grep --line-buffered -vE '\[WHITELIST\]|\[EDGE-HEARTBEAT\]|\[JSON\]\[SHORTWAVE\]' \
     | sed -u 's/gateway_1/scene_1/g; s/gateway_2/scene_2/g; s/gateway_4/scene_3/g; s/gateway_5/scene_3/g; s/Gateway1/scene_1/g; s/Gateway2/scene_2/g; s/Gateway4/scene_3/g; s/Gateway5/scene_3/g' \
     | sed -u -E "/\[LINK-STATUS\].*connected=False/s/.*/${COLOUR_RED}&${COLOUR_RESET}/; /\[LINK-STATUS\].*connected=True/s/.*/${COLOUR_GREEN}&${COLOUR_RESET}/") &
 EDGE_PID=$!

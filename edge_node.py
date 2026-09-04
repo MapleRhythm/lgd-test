@@ -47,8 +47,12 @@ def load_module(name: str, path: Path):
 
 def main() -> None:
     sys.stdout = RedactedStdout(sys.stdout)
-    load_module("edge_config", ROOT / "original" / "edge_config.py")
-    source_path = ROOT / "original" / "gateway_merged.py"
+    # 与生产侧对齐：演示边缘跑 production/edge 的部署版源码对（而非
+    # original/ 现网参考版）——两者仅差短波/卫星专用转发链路承载
+    # （EDGE_RADIO_OVER_5G，未设时行为与 original/ 逐字节一致），演示
+    # 因此获得与生产完全相同的 11450 推送/回退语义。
+    load_module("edge_config", ROOT / "production" / "edge" / "edge_config.py")
+    source_path = ROOT / "production" / "edge" / "gateway_merged.py"
     source = unwrap(source_path)
     namespace = {"__name__": "__main__", "__file__": str(source_path)}
     exec(compile(source, str(source_path), "exec"), namespace)

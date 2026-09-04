@@ -5,6 +5,14 @@
 - **mock 演示**：端侧设备 / 边缘网关 / 云端管理节点三终端，`protocol_test_runtime.py`
   承载大纲命令，业务流真实打到本地边缘网关（TCP 8888 JSON / 7777 媒体）→ 本地中转
   （`original/server_v8.py`，不在任何终端显示）→ 云端节点（`original/gateway_v1.py`）。
+- **边缘网关与生产同源（生产侧对齐）**：演示边缘跑 `production/edge/gateway_merged.py`
+  （`original/` 现网版 + 短波/卫星专用转发链路承载），边缘终端自动拉起本地 radio relay
+  （`production/relay/radio_link_relay.py`，入口 127.0.0.1:11450 / 出口 11550）：短波/
+  卫星联调帧推专用链路，**不经统一上行，服务器 5G 断开指令（/stop1 类）影响不到这条
+  通路**——与生产部署完全同款（`EDGE_RADIO_OVER_5G=1` 默认；置空
+  `EDGE_RADIO_RELAY_URL=` 恢复不经专用链路；`EDGE_RADIO_OVER_5G=0` 恢复电台/串口
+  硬件口径并禁用卫星串口）。查本地接收表：`RELAY_HOST=127.0.0.1 bash
+  production/cloud/query_relay_state.sh`。
 - `original/`：现网源码参考（中转 server_v8、边缘网关 gateway_merged、核心网关 gateway_v1）。
 - `production/`：真机可部署的生产版 2.2.3 流程包。
 
